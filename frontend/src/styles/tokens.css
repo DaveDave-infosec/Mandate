@@ -1,0 +1,14 @@
+:root {
+  --ground: #0E1714; --panel: #15211D; --hairline: #2A3A33;
+  --text: #E6E2D6; --muted: #9AA59E; --brass: #C8A24A;
+  --active: #6FAE8C; --refused: #C2452F; --held: #8C84C8; --revoked: #6E7773;
+  --font-display: "Instrument Serif", serif;
+  --font-body: "Inter Tight", system-ui, sans-serif;
+  --font-mono: "Martian Mono", ui-monospace, monospace;
+}
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--font-body);
+}
