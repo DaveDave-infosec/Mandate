@@ -2,7 +2,7 @@
 
 ## What this suite proves
 
-The suite runs 61 tests. 51 run the real contract code in-process (33 registry, 18 market). 10 read the deployed contracts on GenLayer Studio and assert the live proof run. Zero skips.
+The suite runs 62 tests. 51 run the real contract code in-process (33 registry, 18 market). 11 read the deployed contracts on GenLayer Studio and assert the live proof run and a ledger invariant that holds across every chain. Zero skips.
 
 ## How to run
 
@@ -13,9 +13,9 @@ python -m pytest tests/test_registry.py tests/test_market.py -q
 python -m pytest tests/test_onchain.py -q
 ```
 
-- `python -m pytest tests/ -q` runs everything, about 3 minutes: the live reads pace themselves under Studio's rate limit.
+- `python -m pytest tests/ -q` runs everything, about 4 minutes: the live reads pace themselves under Studio's rate limit.
 - `python -m pytest tests/test_registry.py tests/test_market.py -q` runs the in-process files only, about 7 seconds, no network.
-- `python -m pytest tests/test_onchain.py -q` runs the live reads only, about 2.5 minutes.
+- `python -m pytest tests/test_onchain.py -q` runs the live reads only, about 3.5 minutes.
 - Note: the first in-process run downloads the GenVM SDK (v0.2.16) and can be silent for several minutes.
 - Note: the localnet banner printed by gltest is unrelated. The in-process suite never touches a network.
 
@@ -102,8 +102,9 @@ python -m pytest tests/test_onchain.py -q
 | 6 | test_held_then_bystander_escalation_defaults_to_refused | A bystander forced the final review of a held mandate and the unresolved verdict refused it. |
 | 7 | test_catalog_text_judged_outside_scope_and_authorized | The refusal judged the item text while the hosting item authorized, both bound to the same mandate. |
 | 8 | test_revocation_kills_descendants_by_chain_walk | Revocation left the descendant records untouched and killed them through the chain walk. |
-| 9 | test_purchase_single_use_and_exact_conservation | The capability was consumed exactly once and every minted unit is accounted for. |
-| 10 | test_rpc_lookup_requires_checksummed_address | Documents the Studio RPC behavior: contract lookup works with the checksummed address. |
+| 9 | test_purchase_single_use_and_exact_conservation | The capability was consumed exactly once, and the closed chain's spend and escrow are final. |
+| 10 | test_vault_holds_exactly_the_sum_of_all_escrows | Across every chain on the live contracts, the vault holds exactly what roots have in escrow. |
+| 11 | test_rpc_lookup_requires_checksummed_address | Documents the Studio RPC behavior: contract lookup works with the checksummed address. |
 
 ## The honest boundary, and which tests prove it
 

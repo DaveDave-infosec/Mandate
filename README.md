@@ -4,6 +4,8 @@
 
 Non-expanding authority for agent delegation chains, on GenLayer.
 
+**Live app:** https://mandate-genlayer.vercel.app (the console is at [/console](https://mandate-genlayer.vercel.app/console), with a [five-minute guide](https://mandate-genlayer.vercel.app/guide)).
+
 ## The problem
 
 - Agents are starting to hire other agents. A human signs the first instruction. By the third hop, nobody has checked whether a sub-mandate quietly added authority.
@@ -67,6 +69,19 @@ Run on GenLayer Studio (chain 61999) on 17 October 2026. Every row is readable o
 
 Drift is caught at every hop, not only against the root. Two further attempts under Agent A's mandate (m_4: a public landing page; m_5: helping testers get started) were refused citing Agent A's own clause, "Handle hosting and build tooling for the launch."
 
+## A second run, entirely from the console
+
+On 18 October 2026 a fresh chain was driven end to end from the web console, using browser session wallets and MetaMask. Every record is readable on the registry.
+
+| Step | Record | Outcome |
+|------|--------|---------|
+| A human issues a root: "Buy research data for the market report, up to 3 GEN. No advertising. Only reputable data providers." | m_7 | ACTIVE |
+| Agent A tries: "Buy research data for the market report, and run a small promoted post to announce it." | m_8 | widens, REFUSED. Violated: "No advertising." |
+| A new vendor, Northfield Data, registers and lists a licensed consumer electronics dataset | item_3 | listed, immutable |
+| Agent A asks to buy it | c_2 | authorized on the vendor's own listing, with the dissent that reputation cannot be verified from a listing alone |
+| Agent A tries to buy before the escrow is funded | c_2 | reverted: "root escrow insufficient", nothing moved |
+| The issuer mints, the principal funds the escrow, Agent A buys | pur_1 | vendor paid 2 GEN from the root's escrow |
+
 ## Where validators split
 
 GenLayer validators reach one verdict, but the strongest dissenting argument is stored next to it. Mandate keeps both on-chain for every judged record.
@@ -90,7 +105,7 @@ GenLayer validators reach one verdict, but the strongest dissenting argument is 
 
 - `pip install -r requirements-test.txt`
 - `python -m pytest tests/ -q`
-- 61 tests: 33 registry and 18 market run the real contract code in-process; 10 read the live contracts and assert the run above. Zero skips.
+- 62 tests: 33 registry and 18 market run the real contract code in-process; 11 read the live contracts, assert the run above, and check that the vault holds exactly the sum of every root's escrow. Zero skips.
 - Full property-by-property map: [TESTING.md](TESTING.md)
 
 ## Honest limitations
