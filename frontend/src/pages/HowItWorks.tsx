@@ -82,9 +82,9 @@ export default function HowItWorks() {
         <section className="doc__section">
           <h2>Check it yourself</h2>
           <p>
-            The repository holds both contracts and 61 tests. 51 run the real contract code in-process, including a test
-            for every code-decided rule that also proves no validator was consulted. 10 read the deployed contracts and
-            assert the live proof run.
+            The repository holds both contracts and 62 tests. 51 run the real contract code in-process, including a test
+            for every code-decided rule that also proves no validator was consulted. 11 read the deployed contracts and
+            assert the live proof run, including that the vault holds exactly the sum of every escrow.
           </p>
           <p className="doc__actions">
             <a className="btn" href={REPO_URL} target="_blank" rel="noreferrer">
