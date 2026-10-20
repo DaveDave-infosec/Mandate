@@ -1,5 +1,7 @@
+import datetime
 import json
 import os
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,6 +25,7 @@ os.unlink = _safe_unlink
 
 REGISTRY_PATH = str(Path(__file__).resolve().parent.parent / "contracts" / "mandate_registry.py")
 MARKET_PATH = str(Path(__file__).resolve().parent.parent / "contracts" / "mandate_market.py")
+MARKET_V2_PATH = str(Path(__file__).resolve().parent.parent / "contracts" / "mandate_market_v2.py")
 
 NOW = 1_000_000
 EXPIRY = 2_000_000
@@ -76,10 +79,13 @@ class FakeRegistry:
         self.mandates = {}
         self.items = {}
         self.capabilities = {}
+        self.vendor_names = {}
+        self.legacy_consumed = set()   # capability ids the V1 market already used
 
     # setup helpers
-    def add_mandate(self, mid, parent_id="", root_id=None, depth="0", grantor="", grantee="", cap="0", expiry="0", status="ACTIVE"):
+    def add_mandate(self, mid, parent_id="", root_id=None, depth="0", grantor="", grantee="", cap="0", expiry="0", status="ACTIVE", text="Mandate text."):
         self.mandates[mid] = {
+            "text": text,
             "id": mid,
             "parent_id": parent_id,
             "root_id": mid if root_id is None else root_id,
@@ -135,6 +141,13 @@ class FakeRegistry:
 
     def get_item(self, item_id):
         return self.items[item_id]
+
+    def get_vendor(self, addr):
+        return self.vendor_names.get(addr.lower(), "")
+
+    # answered for the V1 (legacy) market, whose only call is is_consumed
+    def is_consumed(self, capability_id):
+        return capability_id in self.legacy_consumed
 
 
 def make_hook(llm_stub, fake):
@@ -211,3 +224,48 @@ def market_env(fake, issuer, max_supply, deployer="principal", registry=None):
         registry_hx = "0x" + "aa" * 20 if registry is None else registry
         contract = deploy_contract(MARKET_PATH, vm, registry_hx, issuer_hx, max_supply, sdk_version=SDK)
         yield SimpleNamespace(vm=vm, llm=llm, addr=addr, hx=hx, contract=contract, issuer=issuer_hx, registry=registry_hx)
+
+
+def set_chain_time(env, ts: int) -> None:
+    """Set the transaction timestamp the contract reads as chain time."""
+    iso = datetime.datetime.fromtimestamp(int(ts), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000000Z")
+    env.vm.warp(iso)
+    gl_mod = sys.modules.get("genlayer.gl")
+    if gl_mod is not None and getattr(gl_mod, "message_raw", None) is not None:
+        gl_mod.message_raw["datetime"] = iso
+
+
+DELIVERY_WINDOW = 3600
+CHALLENGE_WINDOW = 1800
+
+
+@contextmanager
+def market_v2_env(fake, issuer="principal", max_supply=1000, legacy=None, deployer="principal", now=NOW):
+    """Fresh VM, V2 market deployed against a FakeRegistry, chain time set to now.
+
+    legacy: None for a dummy V1 market address answered by the fake, "" for none.
+    """
+    vm = VMContext()
+    with vm.activate():
+        addr, hx = _make_addresses()
+        vm.sender = getattr(addr, deployer)
+        llm = LLMStub()
+        vm._gl_call_hook = make_hook(llm, fake)
+        issuer_hx = getattr(hx, issuer, issuer)
+        registry_hx = "0x" + "aa" * 20
+        legacy_hx = "0x" + "bb" * 20 if legacy is None else legacy
+        env = SimpleNamespace(vm=vm, llm=llm, addr=addr, hx=hx, issuer=issuer_hx, registry=registry_hx, legacy=legacy_hx)
+        set_chain_time(env, now)
+        env.contract = deploy_contract(MARKET_V2_PATH, vm, registry_hx, legacy_hx, issuer_hx, max_supply, DELIVERY_WINDOW, CHALLENGE_WINDOW, sdk_version=SDK)
+        set_chain_time(env, now)
+        yield env
+
+
+def band(v: str, violated: str = "", reasoning: str = "stub reasoning", minority: str = "stub dissent", evidence: str = "stub evidence") -> str:
+    return json.dumps({
+        "verdict": v,
+        "violated_restriction": violated,
+        "reasoning": reasoning,
+        "minority_note": minority,
+        "evidence": evidence,
+    })
