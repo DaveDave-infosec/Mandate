@@ -24,7 +24,15 @@ const STEPS = [
   },
   {
     title: "Fund and buy",
-    body: "Buying needs GEN in the root's escrow, and only the issuer can mint GEN on this deployment. Once the Principal has GEN, it clicks Fund escrow on the root, and the agent clicks Buy it now. A capability buys exactly once.",
+    body: "Buying needs GEN in the root's escrow, and only the issuer can mint GEN on this deployment. Once the Principal has GEN, it clicks Fund escrow on the root, and the agent clicks Buy it now. The price leaves escrow and is held. Nobody is paid yet.",
+  },
+  {
+    title: "Deliver as the Vendor",
+    body: "Sign as Vendor and find the purchase under Deliveries, marked Yours to deliver. Paste one https URL to what you delivered, a raw text or CSV link reads best. Every validator fetches it and grades it full, most, half or none against your listing and every mandate in the chain. You have 15 minutes, and if you miss it anyone can refund the buyer.",
+  },
+  {
+    title: "Challenge it, or let it settle",
+    body: "For 10 minutes the band is open to one challenge. Sign as any wallet in the chain to argue for a lower band, or as the Vendor to argue for a higher one. Validators re-read the delivery with your words and settle it at once. With no challenge, anyone clicks Settle now after the window, and the split is shown on the record.",
   },
   {
     title: "Pull it all back",
@@ -37,7 +45,7 @@ export default function Guide() {
     <>
       <main className="doc">
         <header className="doc__head">
-          <h1 className="doc__title">Five-minute guide</h1>
+          <h1 className="doc__title">The guide</h1>
           <p className="doc__lede">
             Run a whole delegation chain yourself, from one browser. Each write waits for GenLayer validators and
             finalization, usually under two minutes, and the console opens the new record when it lands.

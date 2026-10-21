@@ -7,6 +7,8 @@ import StateBadge from "./StateBadge";
 import PathBadge from "./PathBadge";
 import Addr from "./Addr";
 import Who from "./Who";
+import { DeliveryDetail, PurchaseLine } from "./Delivery";
+import { nowSeconds } from "../lib/ledger";
 
 /** Explorer receipts for the records of the live proof run. */
 const RECEIPT_LINKS: Record<string, { label: string; hash: string }> = {
@@ -243,8 +245,14 @@ function MandateEntry({
 
 /* ---------------------------------------------------------------- slip */
 
+function purchaseOf(cap: Capability, store: Store) {
+  const id = store.purchases[cap.id];
+  return id ? store.purchaseRecords[id] : undefined;
+}
+
 function SlipDetail({ cap, store }: { cap: Capability; store: Store }) {
   const item = store.items[cap.item_id];
+  const p = purchaseOf(cap, store);
   return (
     <div className="entry__more">
       {item && (
@@ -273,6 +281,7 @@ function SlipDetail({ cap, store }: { cap: Capability; store: Store }) {
           dissent={cap.escalation_minority_note}
         />
       )}
+      {p && <DeliveryDetail p={p} store={store} />}
       <Receipt id={cap.id} />
     </div>
   );
@@ -295,7 +304,8 @@ function SlipEntry({
 }) {
   const cap = row.cap;
   const item = store.items[cap.item_id];
-  const paid = row.purchaseId !== "";
+  const p = purchaseOf(cap, store);
+  const paid = p !== undefined && Number(p.paid) > 0;
   return (
     <article
       className={"entry entry--slip" + (paid ? " entry--paid" : "") + (open ? " entry--open" : "")}
@@ -322,12 +332,7 @@ function SlipEntry({
           <span className="entry__violates">Violates: {cap.violated_restriction}</span>
         )}
         {cap.escalated === "1" && <EscalationLine by={cap.escalated_by} verdict={cap.escalation_verdict} />}
-        {paid && (
-          <span className="slip__paid">
-            Paid {fmtGen(cap.price)} to <Who addr={cap.vendor} names={store.vendorNames} /> from the root's escrow
-            <span className="mono"> {row.purchaseId}</span>
-          </span>
-        )}
+        {p && <PurchaseLine p={p} store={store} now={nowSeconds()} />}
         <span className="entry__toggle" aria-hidden="true">
           {open ? "Hide details" : canAct ? "Why, the listing, and your actions" : "Why, and the vendor's listing"}
         </span>
@@ -410,7 +415,7 @@ export default function Ledger({
           );
         const style = { "--depth": row.depth } as CSSProperties;
         return (
-          <li key={row.key} className={`ledger__row ledger__row--${row.lane}`} style={style}>
+          <li key={row.key} id={`row-${row.key}`} className={`ledger__row ledger__row--${row.lane}`} style={style}>
             <div className="ledger__spine">
               <Guides depth={row.depth} />
               {row.depth > 0 && <span className="elbow" aria-hidden="true" />}

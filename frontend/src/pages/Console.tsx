@@ -9,6 +9,7 @@ import Ledger from "../components/Ledger";
 import StateBadge from "../components/StateBadge";
 import Addr from "../components/Addr";
 import Who from "../components/Who";
+import { PurchaseLine, fmtGen } from "../components/Delivery";
 import {
   IssueRootPanel,
   MandateActions,
@@ -144,7 +145,33 @@ export function ConsolePage() {
   const roots = useMemo(() => rootsOf(store), [store]);
   const [rootId, setRootId] = useState(LIVE_RUN_ROOT);
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set(["m_2"]));
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const t = window.setInterval(() => setTick((x) => x + 1), 30_000);
+    return () => window.clearInterval(t);
+  }, []);
+  const [scrollTo, setScrollTo] = useState("");
+  useEffect(() => {
+    if (scrollTo === "") return;
+    const t = window.setTimeout(() => {
+      document.getElementById(`row-${scrollTo}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      setScrollTo("");
+    }, 80);
+    return () => window.clearTimeout(t);
+  }, [scrollTo]);
   const now = nowSeconds();
+  const v2Purchases = useMemo(
+    () =>
+      Object.values(store.purchaseRecords)
+        .filter((p) => p.market === "v2")
+        .sort((a, b) => Number(b.id.replace("pur_", "")) - Number(a.id.replace("pur_", ""))),
+    [store]
+  );
+  const openPurchase = (capId: string, rootOfIt: string) => {
+    setRootId(rootOfIt);
+    setOpenIds((prev) => new Set(prev).add(capId));
+    setScrollTo(capId);
+  };
 
   const activeRoot = store.mandates[rootId] ? rootId : (roots[0]?.id ?? "");
   const root = store.mandates[activeRoot];
@@ -186,8 +213,7 @@ export function ConsolePage() {
   const canAct = (row: Row) => {
     if (me === "") return false;
     if (row.kind === "mandate") return Object.values(mandateAvailability(row.mandate, me, store, now)).some(Boolean);
-    const a = slipAvailability(row.cap, me, store, now);
-    return a.purchase || a.escalate;
+    return Object.values(slipAvailability(row.cap, me, store, now)).some(Boolean);
   };
 
   const rootState = root ? effectiveState(root, store.mandates, now) : "";
@@ -282,6 +308,50 @@ export function ConsolePage() {
           />
         </>
       )}
+
+      <section className="deliveries" aria-labelledby="deliveries-title">
+        <h2 id="deliveries-title" className="catalog__title">
+          Deliveries
+        </h2>
+        <p className="catalog__lede">
+          Every purchase in the V2 market. The price is held until validators fetch and read what the vendor delivered,
+          grade it, and the challenge window closes.
+          {store.heldTotal !== null && store.vaultBalance !== null && (
+            <>
+              {" "}
+              Held right now: <span className="mono">{fmtGen(store.heldTotal)}</span> of the vault's{" "}
+              <span className="mono">{fmtGen(store.vaultBalance)}</span>.
+            </>
+          )}
+        </p>
+        {v2Purchases.length === 0 ? (
+          <p className="empty">No V2 purchases yet. An agent holding an issued request clicks Buy it now.</p>
+        ) : (
+          <ul className="deliveries__list">
+            {v2Purchases.map((p) => {
+              const item = store.items[p.item];
+              const yours = me !== "" && me === p.vendor.toLowerCase() && p.status === "AWAITING_DELIVERY";
+              return (
+                <li key={p.id} className={"delivery-row" + (yours ? " delivery-row--yours" : "")} data-status={p.status}>
+                  <div className="listing-row__head">
+                    <span className="listing-row__title">{item ? item.title : p.item}</span>
+                    <span className="listing-row__price mono">{fmtGen(p.price)}</span>
+                  </div>
+                  <p className="listing-row__meta">
+                    <span className="mono">{p.capability}</span> under <span className="mono">{p.mandate}</span>, bought by{" "}
+                    <Who addr={p.buyer} /> from <Who addr={p.vendor} names={store.vendorNames} />
+                    {yours && <span className="delivery-row__flag">Yours to deliver</span>}
+                  </p>
+                  <PurchaseLine p={p} store={store} now={now} />
+                  <button type="button" className="btn delivery-row__open" onClick={() => openPurchase(p.capability, p.root)}>
+                    Open in the ledger
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
 
       <section className="catalog" aria-labelledby="catalog-title">
         <h2 id="catalog-title" className="catalog__title">

@@ -5,9 +5,13 @@ import { CATEGORIES, ISSUER, txUrl } from "../../lib/contracts";
 import { SLOT_LABELS, useWallet } from "../../lib/wallet";
 import { chainOf, effectiveState } from "../../lib/tree";
 import {
+  challenge,
   delegate,
+  deliver,
   escalate,
   escalateCapability,
+  escalateDelivery,
+  expire,
   fundRoot,
   issueRoot,
   listItem,
@@ -17,6 +21,7 @@ import {
   registerVendor,
   requestCapability,
   revoke,
+  settle,
 } from "../../lib/writes";
 import { useAction, type ActionState } from "./useAction";
 import Who from "../Who";
@@ -338,17 +343,41 @@ export function mandateAvailability(m: Mandate, me: string, store: Store, now: n
   };
 }
 
+function chainWallets(mandateId: string, store: Store): string[] {
+  const out = new Set<string>();
+  for (const m of chainOf(mandateId, store.mandates)) {
+    out.add(m.grantor.toLowerCase());
+    out.add(m.grantee.toLowerCase());
+  }
+  return [...out];
+}
+
 export function slipAvailability(cap: Capability, me: string, store: Store, now: number) {
   const m = store.mandates[cap.mandate_id];
   const live = m ? effectiveState(m, store.mandates, now) === "ACTIVE" : false;
+  const pid = store.purchases[cap.id];
+  const p = pid ? store.purchaseRecords[pid] : undefined;
+  const v2 = p !== undefined && p.market === "v2";
+  const isVendor = v2 && me !== "" && me === p.vendor.toLowerCase();
+  const inChain = v2 && me !== "" && chainWallets(p.mandate, store).includes(me);
   return {
     purchase:
       me !== "" &&
       me === cap.grantee.toLowerCase() &&
       cap.status === "ISSUED" &&
-      !store.purchases[cap.id] &&
+      !pid &&
       live,
     escalate: me !== "" && cap.status === "HELD" && cap.escalated === "0",
+    deliver: v2 && isVendor && p.status === "AWAITING_DELIVERY" && now <= Number(p.deliver_by),
+    expire: v2 && me !== "" && p.status === "AWAITING_DELIVERY" && now > Number(p.deliver_by),
+    escalateDelivery: v2 && me !== "" && p.status === "HELD" && p.escalated === "0",
+    challenge:
+      v2 &&
+      p.status === "JUDGED" &&
+      p.challenged === "0" &&
+      now <= Number(p.challenge_until) &&
+      ((isVendor && p.band !== "full") || (!isVendor && inChain && p.band !== "none")),
+    settle: v2 && me !== "" && p.status === "JUDGED" && now > Number(p.challenge_until),
   };
 }
 
@@ -515,7 +544,7 @@ export function MandateActions({
             type="button"
             className="btn"
             disabled={act.busy}
-            onClick={() => act.run(() => refundRoot(m.id), () => onDone(m.id), () => "Unspent escrow returned to you.")}
+            onClick={() => act.run(() => refundRoot(m.id), () => onDone(m.id), () => "Unspent escrow returned to you. Money still held for open purchases stays until they settle.")}
           >
             Reclaim unspent escrow
           </button>
@@ -611,7 +640,14 @@ export function SlipActions({
   const me = active ? active.address.toLowerCase() : "";
   const can = slipAvailability(cap, me, store, now);
   const act = useAction();
-  if (!active || (!can.purchase && !can.escalate)) return null;
+  const [url, setUrl] = useState("");
+  const [grounds, setGrounds] = useState("");
+  const pid = store.purchases[cap.id] ?? "";
+  const p = pid ? store.purchaseRecords[pid] : undefined;
+  const isVendor = p !== undefined && me === p.vendor.toLowerCase();
+  if (!active || !Object.values(can).some(Boolean)) return null;
+  const urlOk = /^https:\/\/[^\s"'<>]{4,292}$/.test(url.trim());
+  const groundsOk = grounds.trim().length >= 10 && grounds.trim().length <= 1000;
   return (
     <section className="act" aria-label="Actions">
       <h4 className="act__title">
@@ -627,7 +663,7 @@ export function SlipActions({
               act.run(
                 () => purchase(cap.id),
                 () => onDone(cap.id),
-                (r) => `Purchased as ${r.id}. The vendor was paid from the root's escrow.`
+                (r) => `Bought as ${r.id}. The price is held until validators read the vendor's delivery.`
               )
             }
           >
@@ -646,14 +682,139 @@ export function SlipActions({
             Force the final review
           </button>
         )}
+        {can.expire && (
+          <button
+            type="button"
+            className="btn"
+            disabled={act.busy}
+            onClick={() =>
+              act.run(
+                () => expire(pid),
+                () => onDone(cap.id),
+                () => "Refunded. The vendor missed the deadline, so the whole price went back to the root's escrow."
+              )
+            }
+          >
+            Refund, the deadline passed
+          </button>
+        )}
+        {can.escalateDelivery && (
+          <button
+            type="button"
+            className="btn"
+            disabled={act.busy}
+            onClick={() =>
+              act.run(() => escalateDelivery(pid), () => onDone(cap.id), () => "Forced review recorded. The challenge window is open.")
+            }
+          >
+            Force the final review of the delivery
+          </button>
+        )}
+        {can.settle && (
+          <button
+            type="button"
+            className="btn btn--primary"
+            disabled={act.busy}
+            onClick={() =>
+              act.run(() => settle(pid), () => onDone(cap.id), () => "Settled. The band's share went to the vendor and the rest back to escrow.")
+            }
+          >
+            Settle now
+          </button>
+        )}
       </div>
       {can.purchase && (
         <p className="act-hint">
-          The market checks the whole chain again and the budget at every hop before paying. A capability works once.
+          The market checks the whole chain again and the budget at every hop. The price is then held, not paid. The
+          vendor is paid only after validators read what it delivers.
         </p>
+      )}
+      {can.settle && (
+        <p className="act-hint">The challenge window has closed. Anyone can settle, and the band in force decides the split.</p>
+      )}
+
+      {can.deliver && p && (
+        <form
+          className="act-form act-form--inline"
+          onSubmit={(e: FormEvent) => {
+            e.preventDefault();
+            if (!urlOk) return;
+            act.run(
+              () => deliver(pid, url),
+              () => {
+                setUrl("");
+                onDone(cap.id);
+              },
+              () => "Delivered. Validators fetched your URL and graded it. Their verdict is in the record."
+            );
+          }}
+        >
+          <Field
+            label="Deliver: the URL of what you delivered"
+            hint="https only. Every validator fetches this URL itself and reads the content against your listing and every mandate in the chain. A raw text or CSV link reads best. You get one delivery."
+          >
+            <input
+              className="input mono"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://gist.githubusercontent.com/..."
+              spellCheck={false}
+            />
+          </Field>
+          <p className="act-form__note">Deadline {fmtDeadline(p.deliver_by)}.</p>
+          <button type="submit" className="btn btn--primary" disabled={act.busy || !urlOk}>
+            Send to validators
+          </button>
+        </form>
+      )}
+
+      {can.challenge && p && (
+        <form
+          className="act-form act-form--inline"
+          onSubmit={(e: FormEvent) => {
+            e.preventDefault();
+            if (!groundsOk) return;
+            act.run(
+              () => challenge(pid, grounds),
+              () => {
+                setGrounds("");
+                onDone(cap.id);
+              },
+              () => "Challenge decided. Validators re-read the delivery with your grounds, and the purchase is settled."
+            );
+          }}
+        >
+          <Field
+            label={isVendor ? "Challenge: why the delivery deserves a higher band" : "Challenge: why the delivery deserves a lower band"}
+            hint="10 to 1000 characters. Validators re-read the delivery themselves and give your words weight only where the content bears them out. One challenge per purchase, and its result settles the money at once."
+          >
+            <textarea className="input" rows={3} value={grounds} onChange={(e) => setGrounds(e.target.value)} />
+          </Field>
+          <p className="act-form__note">
+            Band in force: {p.band.toUpperCase()}. Window closes {fmtDeadline(p.challenge_until)}.
+          </p>
+          <button type="submit" className="btn" disabled={act.busy || !groundsOk}>
+            File the challenge
+          </button>
+        </form>
       )}
       <ActionStatus state={act.state} />
     </section>
+  );
+}
+
+function fmtDeadline(seconds: string): string {
+  const n = Number(seconds);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  return (
+    new Date(n * 1000).toLocaleString("en-GB", {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZone: "UTC",
+    }) + " UTC"
   );
 }
 

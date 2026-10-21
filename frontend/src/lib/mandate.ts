@@ -58,14 +58,50 @@ export interface Item {
   price: string;
 }
 
+/** A V2 purchase record, as the market returns it. V1 purchases are mapped onto the same shape. */
 export interface Purchase {
+  id: string;
+  market: string; // "v1" or "v2"
   capability: string;
   buyer: string;
   vendor: string;
   item: string;
   price: string;
   root: string;
+  mandate: string;
+  hops: string;
   at: string;
+  deliver_by: string;
+  status: string;
+  url: string;
+  delivered_at: string;
+  verdict: string;
+  reasoning: string;
+  minority_note: string;
+  violated_restriction: string;
+  evidence: string;
+  escalated: string;
+  escalation_verdict: string;
+  escalation_reasoning: string;
+  escalation_minority_note: string;
+  escalation_evidence: string;
+  escalated_by: string;
+  band: string;
+  band_source: string;
+  challenge_until: string;
+  challenged: string;
+  challenger: string;
+  challenger_role: string;
+  challenge_text: string;
+  challenge_verdict: string;
+  challenge_reasoning: string;
+  challenge_minority_note: string;
+  challenge_evidence: string;
+  challenge_violated_restriction: string;
+  paid: string;
+  refunded: string;
+  settled_at: string;
+  settled_by: string;
 }
 
 const MANDATE_KEYS: readonly (keyof Mandate)[] = [
@@ -126,15 +162,20 @@ const ITEM_KEYS: readonly (keyof Item)[] = [
   "price",
 ];
 
-const PURCHASE_KEYS: readonly (keyof Purchase)[] = [
-  "capability",
-  "buyer",
-  "vendor",
-  "item",
-  "price",
-  "root",
-  "at",
+export const PURCHASE_KEYS: readonly (keyof Purchase)[] = [
+  "id", "market", "capability", "buyer", "vendor", "item", "price", "root", "mandate", "hops", "at",
+  "deliver_by", "status", "url", "delivered_at", "verdict", "reasoning", "minority_note",
+  "violated_restriction", "evidence", "escalated", "escalation_verdict", "escalation_reasoning",
+  "escalation_minority_note", "escalation_evidence", "escalated_by", "band", "band_source",
+  "challenge_until", "challenged", "challenger", "challenger_role", "challenge_text", "challenge_verdict",
+  "challenge_reasoning", "challenge_minority_note", "challenge_evidence", "challenge_violated_restriction",
+  "paid", "refunded", "settled_at", "settled_by",
 ];
+
+/** Purchases still waiting on a delivery, a verdict or a settlement. */
+export function purchaseIsOpen(p: Purchase): boolean {
+  return p.market === "v2" && p.status !== "SETTLED" && p.status !== "EXPIRED";
+}
 
 type RecordMap = Record<string, unknown>;
 
@@ -274,8 +315,10 @@ export async function getPurchaseForCapability(capId: string): Promise<string> {
 
 export async function getPurchase(purId: string): Promise<Purchase | null> {
   const raw = asRecord(normalize(await readMarket("get_purchase", [purId])));
-  if (!raw) return null;
-  return fillRecord(raw, PURCHASE_KEYS) as unknown as Purchase;
+  if (!raw || !raw["id"]) return null;
+  const rec = fillRecord(raw, PURCHASE_KEYS) as unknown as Purchase;
+  rec.market = "v2";
+  return rec;
 }
 
 export async function getTotalMinted(): Promise<number> {

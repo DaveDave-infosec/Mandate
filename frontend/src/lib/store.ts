@@ -1,5 +1,5 @@
-import { normalize, readMarket, readRegistry } from "./rpc";
-import type { Capability, Item, Mandate, Purchase } from "./mandate";
+import { normalize, readMarket, readMarketV1, readRegistry } from "./rpc";
+import { PURCHASE_KEYS, purchaseIsOpen, type Capability, type Item, type Mandate, type Purchase } from "./mandate";
 import snapshotData from "../data/snapshot.json";
 
 export interface Store {
@@ -13,6 +13,7 @@ export interface Store {
   purchaseRecords: Record<string, Purchase>;
   totalMinted: number | null;
   vaultBalance: number | null;
+  heldTotal: number | null;
   final: Set<string>;
 }
 
@@ -32,9 +33,22 @@ const CAPABILITY_KEYS = [
 
 const ITEM_KEYS = ["id", "vendor", "category", "title", "description", "price"] as const;
 
-const PURCHASE_KEYS = ["capability", "buyer", "vendor", "item", "price", "root", "at"] as const;
+const V1_PURCHASE_KEYS = ["capability", "buyer", "vendor", "item", "price", "root", "at"] as const;
 
-const PERSIST_KEY = "mandate.store.v1";
+/** V1 purchases live in the V1 market under their own ids, so they are keyed "v1:pur_N" here. */
+function v1Purchase(id: string, raw: RawRecord | null): Purchase {
+  const base = fillRecord(raw, V1_PURCHASE_KEYS);
+  const rec = fillRecord(null, PURCHASE_KEYS) as unknown as Purchase;
+  Object.assign(rec, base);
+  rec.id = id;
+  rec.market = "v1";
+  rec.status = "PAID";
+  rec.paid = rec.price;
+  rec.refunded = "0";
+  return rec;
+}
+
+const PERSIST_KEY = "mandate.store.v2";
 const SNAPSHOT_RESET_ERROR =
   "The live contracts report fewer records than the shipped snapshot. The network may have been reset.";
 
@@ -86,6 +100,7 @@ function emptyStore(): Store {
     purchaseRecords: {},
     totalMinted: null,
     vaultBalance: null,
+    heldTotal: null,
     final: new Set<string>(),
   };
 }
@@ -112,10 +127,10 @@ function storeFromSnapshot(): Store {
   for (const [id, n] of Object.entries(snapshot.spent)) store.spent[id] = asSafeNumber(n, 0);
   for (const [id, n] of Object.entries(snapshot.escrow)) store.escrow[id] = asSafeNumber(n, 0);
   for (const [capId, purId] of Object.entries(snapshot.purchases)) {
-    store.purchases[capId] = purId;
+    store.purchases[capId] = "v1:" + purId;
   }
   for (const [purId, raw] of Object.entries(snapshot.purchaseRecords)) {
-    store.purchaseRecords[purId] = fillRecord(raw, PURCHASE_KEYS) as unknown as Purchase;
+    store.purchaseRecords["v1:" + purId] = v1Purchase("v1:" + purId, raw);
   }
   return store;
 }
@@ -298,16 +313,34 @@ export async function refreshLive(current: Store): Promise<Store> {
     const raw = await readMarket<unknown>("get_escrow", [id]);
     escrow[id] = asSafeNumber(normalize(raw, "top"), escrow[id] ?? 0);
   }
+  // V2 purchases: every record that is still open is read again, settled ones are kept as they are.
+  const v2Count = await liveCount("market", "get_purchase_count");
+  for (let i = 0; i < v2Count; i++) {
+    const purId = `pur_${i}`;
+    const known = purchaseRecords[purId];
+    if (known && known.market === "v2" && !purchaseIsOpen(known)) {
+      purchases[known.capability] = purId;
+      continue;
+    }
+    const recRaw = asRecord(normalize(await readMarket<unknown>("get_purchase", [purId])));
+    if (!recRaw || !recRaw["id"]) continue;
+    const rec = fillRecord(recRaw, PURCHASE_KEYS) as unknown as Purchase;
+    rec.market = "v2";
+    purchaseRecords[purId] = rec;
+    purchases[rec.capability] = purId;
+  }
+
+  // V1 purchases: a capability bought in the V1 market stays bought. V1 records never change.
   for (const id of nonFinalIssuedCaps) {
-    const raw = await readMarket<unknown>("get_purchase_for_capability", [id]);
-    const purId = typeof raw === "string" ? raw : "";
-    if (purId === "") continue;
-    purchases[id] = purId;
-    if (!purchaseRecords[purId]) {
-      const recRaw = asRecord(normalize(await readMarket<unknown>("get_purchase", [purId])));
-      if (recRaw) {
-        purchaseRecords[purId] = fillRecord(recRaw, PURCHASE_KEYS) as unknown as Purchase;
-      }
+    if (purchases[id]) continue;
+    const raw = await readMarketV1<unknown>("get_purchase_for_capability", [id]);
+    const v1Id = typeof raw === "string" ? raw : "";
+    if (v1Id === "") continue;
+    const key = "v1:" + v1Id;
+    purchases[id] = key;
+    if (!purchaseRecords[key]) {
+      const recRaw = asRecord(normalize(await readMarketV1<unknown>("get_purchase", [v1Id])));
+      purchaseRecords[key] = v1Purchase(key, recRaw);
     }
   }
 
@@ -322,6 +355,7 @@ export async function refreshLive(current: Store): Promise<Store> {
     purchaseRecords,
     totalMinted: await liveCount("market", "get_total_minted"),
     vaultBalance: await liveCount("market", "get_vault_balance"),
+    heldTotal: await liveCount("market", "get_held_total"),
     final,
   };
 

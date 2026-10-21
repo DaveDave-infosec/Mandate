@@ -1,5 +1,8 @@
 export const REGISTRY_ADDRESS = "0x26d11ddA633434BF879876bd120f2052765b73fB";
-export const MARKET_ADDRESS = "0x21e6160A6B5166A60B58B5E06C4375d254C81DF8";
+/** The V2 market: payment waits for validators to read the delivery. Every write goes here. */
+export const MARKET_ADDRESS = "0x063DE96D0eB06289AF153EDa0Be4BE1F42289820";
+/** The V1 market: paid on purchase. Kept for its record, and checked by V2 so no capability is bought twice. */
+export const MARKET_V1_ADDRESS = "0x21e6160A6B5166A60B58B5E06C4375d254C81DF8";
 export const CHAIN_ID = 61999;
 
 const EXPLORER = "https://explorer-studio.genlayer.com";

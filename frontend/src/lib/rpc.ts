@@ -1,6 +1,6 @@
 import { createClient } from "genlayer-js";
 import { studionet } from "genlayer-js/chains";
-import { MARKET_ADDRESS, REGISTRY_ADDRESS } from "./contracts";
+import { MARKET_ADDRESS, MARKET_V1_ADDRESS, REGISTRY_ADDRESS } from "./contracts";
 
 type GenClient = ReturnType<typeof createClient>;
 
@@ -112,11 +112,11 @@ export function invalidateCache(): void {
 }
 
 async function read<T>(
-  which: "registry" | "market",
+  which: "registry" | "market" | "market_v1",
   fn: string,
   args: unknown[]
 ): Promise<T> {
-  const address = which === "registry" ? REGISTRY_ADDRESS : MARKET_ADDRESS;
+  const address = which === "registry" ? REGISTRY_ADDRESS : which === "market" ? MARKET_ADDRESS : MARKET_V1_ADDRESS;
   const key = cacheKey(address, fn, args);
   const hit = cache.get(key);
   if (hit && hit.expiresAt > Date.now()) {
@@ -144,6 +144,10 @@ export function readRegistry<T = unknown>(fn: string, args: unknown[] = []): Pro
 
 export function readMarket<T = unknown>(fn: string, args: unknown[] = []): Promise<T> {
   return read<T>("market", fn, args);
+}
+
+export function readMarketV1<T = unknown>(fn: string, args: unknown[] = []): Promise<T> {
+  return read<T>("market_v1", fn, args);
 }
 
 export function normalize(value: unknown, mode: "record" | "top" = "record"): JsonValue {

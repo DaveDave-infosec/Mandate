@@ -22,6 +22,7 @@ export interface SlipRow {
   lane: Lane;
   cap: Capability;
   purchaseId: string;
+  paid: boolean;
 }
 
 export type Row = MandateRow | SlipRow;
@@ -45,11 +46,18 @@ export function rootsOf(store: Store): Mandate[] {
   });
 }
 
+/** True once money actually reached the vendor for this capability. */
+export function isPaid(store: Store, capId: string): boolean {
+  const id = store.purchases[capId];
+  const p = id ? store.purchaseRecords[id] : undefined;
+  return p !== undefined && Number(p.paid) > 0;
+}
+
 /** Every mandate id on the path from the root to each paid capability's mandate. */
 function paidMandates(store: Store): Set<string> {
   const out = new Set<string>();
   for (const cap of Object.values(store.capabilities)) {
-    if (!store.purchases[cap.id]) continue;
+    if (!isPaid(store, cap.id)) continue;
     let cur: Mandate | undefined = store.mandates[cap.mandate_id];
     const seen = new Set<string>();
     while (cur && !seen.has(cur.id)) {
@@ -113,6 +121,7 @@ export function buildRows(store: Store, rootId: string, now: number): Row[] {
         lane: cap.status === "REFUSED" ? "gutter" : "spine",
         cap,
         purchaseId: store.purchases[cap.id] ?? "",
+        paid: isPaid(store, cap.id),
       });
     }
     for (const child of children[m.id] ?? []) walk(child, depth + 1);
@@ -140,7 +149,7 @@ export function summarize(rows: Row[]): ChainSummary {
     } else {
       s.requests += 1;
       if (r.cap.status === "REFUSED") s.refusedRequests += 1;
-      if (r.purchaseId !== "") s.paid += 1;
+      if (r.paid) s.paid += 1;
     }
   }
   return s;

@@ -13,8 +13,10 @@ const CODE_ROWS = [
   "Three hops below the human, at most",
   "No agent can be delegated back into its own chain",
   "Identical text is approved by hash, with no validator call",
-  "Every purchase is re-checked against every hop's budget at payment time",
-  "A capability buys once",
+  "Every purchase is re-checked against every hop's budget, and the price is held",
+  "A capability buys once, across both markets",
+  "Delivery deadlines and challenge windows run on chain time",
+  "The vendor's share and the refund always add up to the price",
 ];
 
 const VALIDATOR_ROWS = [
@@ -25,6 +27,10 @@ const VALIDATOR_ROWS = [
   {
     q: "Does this catalog item fit every mandate in the chain?",
     a: "They judge the vendor's own listing. The agent asking never describes its purchase.",
+  },
+  {
+    q: "How much of the listing did the vendor actually deliver?",
+    a: "Each validator fetches the delivery itself and grades it full, most, half or none. A delivery that breaks any mandate pays nothing.",
   },
 ];
 
@@ -178,8 +184,9 @@ export default function Home() {
             <div className="trust__item">
               <h3>Money moves only inside the chain</h3>
               <p>
-                At payment time the market re-reads every hop, checks each budget, and pays from the human's escrow. A
-                replayed capability was reverted with nothing moved.
+                At purchase the market re-reads every hop, checks each budget, and holds the price. The vendor is paid only
+                the share validators grade from the delivery itself, after one challenge window. A replayed capability was
+                reverted with nothing moved.
               </p>
               <a className="receipt" href={txUrl(RECEIPTS.replay)} target="_blank" rel="noreferrer">
                 The replay revert
@@ -209,7 +216,7 @@ export default function Home() {
               Open the console
             </Link>
             <Link to="/guide" className="btn btn--lg">
-              Read the five-minute guide
+              Read the guide
             </Link>
           </div>
         </section>

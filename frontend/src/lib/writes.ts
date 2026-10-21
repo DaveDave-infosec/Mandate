@@ -316,8 +316,7 @@ export async function fundRoot(rootId: string, amount: number): Promise<WriteRes
 }
 
 export async function purchase(capId: string): Promise<WriteResultWithId> {
-  const now = nowSeconds();
-  const hash = await send("market", "purchase", [capId, now]);
+  const hash = await send("market", "purchase", [capId]);
   const id = await getPurchaseForCapability(capId);
   if (!id) {
     throw new Error(
@@ -327,8 +326,32 @@ export async function purchase(capId: string): Promise<WriteResultWithId> {
   return { hash, id };
 }
 
+export async function deliver(purchaseId: string, url: string): Promise<WriteResult> {
+  const hash = await send("market", "deliver", [purchaseId, url.trim()]);
+  return { hash };
+}
+
+export async function escalateDelivery(purchaseId: string): Promise<WriteResult> {
+  const hash = await send("market", "escalate_delivery", [purchaseId]);
+  return { hash };
+}
+
+export async function challenge(purchaseId: string, grounds: string): Promise<WriteResult> {
+  const hash = await send("market", "challenge", [purchaseId, grounds.trim()]);
+  return { hash };
+}
+
+export async function settle(purchaseId: string): Promise<WriteResult> {
+  const hash = await send("market", "settle", [purchaseId]);
+  return { hash };
+}
+
+export async function expire(purchaseId: string): Promise<WriteResult> {
+  const hash = await send("market", "expire", [purchaseId]);
+  return { hash };
+}
+
 export async function refundRoot(rootId: string): Promise<WriteResult> {
-  const now = nowSeconds();
-  const hash = await send("market", "refund_root", [rootId, now]);
+  const hash = await send("market", "refund_root", [rootId]);
   return { hash };
 }
