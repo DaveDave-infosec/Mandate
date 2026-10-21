@@ -1,6 +1,6 @@
 import type { Capability, Mandate } from "./mandate";
 import type { Store } from "./store";
-import { LIVE_RUN_ROOT } from "./contracts";
+import { LIVE_RUN_ROOT, V2_RUN_ROOT } from "./contracts";
 import { effectiveState } from "./tree";
 
 export type Lane = "spine" | "gutter";
@@ -36,12 +36,14 @@ export function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
 }
 
-/** Root mandates, live proof run first, then newest first. */
+/** Root mandates: the V2 proof run, then the V1 proof run, then newest first. */
 export function rootsOf(store: Store): Mandate[] {
   const roots = Object.values(store.mandates).filter((m) => m.parent_id === "");
   return roots.sort((a, b) => {
-    if (a.id === LIVE_RUN_ROOT) return -1;
-    if (b.id === LIVE_RUN_ROOT) return 1;
+    for (const pinned of [V2_RUN_ROOT, LIVE_RUN_ROOT]) {
+      if (a.id === pinned) return -1;
+      if (b.id === pinned) return 1;
+    }
     return idNumber(b.id) - idNumber(a.id);
   });
 }

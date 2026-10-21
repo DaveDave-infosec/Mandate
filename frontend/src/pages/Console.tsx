@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { balanceOf } from "../lib/mandate";
-import { LIVE_RUN_ROOT } from "../lib/contracts";
+import { LIVE_RUN_ROOT, V2_RUN_ROOT } from "../lib/contracts";
 import { SLOT_LABELS, useWallet, type SlotLabel } from "../lib/wallet";
 import { useStore } from "../lib/useStore";
 import { buildRows, nowSeconds, rootsOf, summarize, type ChainSummary } from "../lib/ledger";
@@ -143,8 +143,8 @@ export function ConsolePage() {
   const me = active ? active.address.toLowerCase() : "";
   const [focus, setFocus] = useState("");
   const roots = useMemo(() => rootsOf(store), [store]);
-  const [rootId, setRootId] = useState(LIVE_RUN_ROOT);
-  const [openIds, setOpenIds] = useState<Set<string>>(() => new Set(["m_2"]));
+  const [rootId, setRootId] = useState(V2_RUN_ROOT);
+  const [openIds, setOpenIds] = useState<Set<string>>(() => new Set(["m_2", "c_6"]));
   const [, setTick] = useState(0);
   useEffect(() => {
     const t = window.setInterval(() => setTick((x) => x + 1), 30_000);
@@ -276,7 +276,8 @@ export function ConsolePage() {
         <>
           <section className="charter" aria-label="Root mandate">
             <p className="charter__by">
-              {activeRoot === LIVE_RUN_ROOT && <span className="charter__tag">Live proof run</span>}
+              {activeRoot === LIVE_RUN_ROOT && <span className="charter__tag">V1 live proof run</span>}
+              {activeRoot === V2_RUN_ROOT && <span className="charter__tag">V2 live proof run</span>}
               Root <span className="mono">{root.id}</span>, written by <Who addr={root.grantor} /> for{" "}
               <Who addr={root.grantee} />
             </p>

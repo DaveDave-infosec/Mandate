@@ -72,9 +72,17 @@ export function ActionStatus({ state }: { state: ActionState }) {
     );
   }
   if (state.phase === "error") {
+    const network = /failed to fetch|unknown rpc error|network|502|503|504|timed out/i.test(state.message);
     return (
       <p className="act-status act-status--error" role="alert">
-        The chain refused it: {state.message}
+        {network ? (
+          <>
+            Could not reach the chain, so the result is unknown. Click Check again at the top to see whether it landed
+            before you try again.
+          </>
+        ) : (
+          <>The chain refused it: {state.message}</>
+        )}
       </p>
     );
   }

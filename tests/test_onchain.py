@@ -24,25 +24,29 @@ MIN_GAP = 2.2
 RATE_LIMIT_SLEEP = 6
 
 
+TRANSIENT = ("Rate limit", "502", "503", "504", "Bad gateway", "invalid JSON", "timed out", "Connection")
+ATTEMPTS = 4
+
+
 def _paced(fn):
     """Wait until at least MIN_GAP has passed since the previous read, then run fn.
 
-    A single rate-limit response sleeps and retries once. Any other error propagates unchanged.
+    Studio rate limits and gateway errors are transient: those retry up to ATTEMPTS times with a pause.
+    Any other error, including a contract assertion, propagates unchanged on the first try.
     """
-    gap = time.monotonic() - _last_call[0]
-    if gap < MIN_GAP:
-        time.sleep(MIN_GAP - gap)
-    try:
-        result = fn()
-        _last_call[0] = time.monotonic()
-        return result
-    except Exception as e:
-        if "Rate limit" not in str(e):
-            raise
-        time.sleep(RATE_LIMIT_SLEEP)
-        result = fn()
-        _last_call[0] = time.monotonic()
-        return result
+    for attempt in range(ATTEMPTS):
+        gap = time.monotonic() - _last_call[0]
+        if gap < MIN_GAP:
+            time.sleep(MIN_GAP - gap)
+        try:
+            result = fn()
+            _last_call[0] = time.monotonic()
+            return result
+        except Exception as e:
+            _last_call[0] = time.monotonic()
+            if attempt == ATTEMPTS - 1 or not any(t in str(e) for t in TRANSIENT):
+                raise
+            time.sleep(RATE_LIMIT_SLEEP * (attempt + 1))
 
 
 @pytest.fixture(scope="module")

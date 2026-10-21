@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { MARKET_ADDRESS, REGISTRY_ADDRESS, REPO_URL, addressUrl } from "../lib/contracts";
+import { MARKET_ADDRESS, MARKET_V1_ADDRESS, REGISTRY_ADDRESS, REPO_URL, addressUrl } from "../lib/contracts";
 
 export default function Footer() {
   return (
@@ -19,10 +19,18 @@ export default function Footer() {
             </dd>
           </div>
           <div>
-            <dt>Market, GenLayer Studio</dt>
+            <dt>Market V2, GenLayer Studio</dt>
             <dd>
               <a className="mono" href={addressUrl(MARKET_ADDRESS)} target="_blank" rel="noreferrer">
                 {MARKET_ADDRESS}
+              </a>
+            </dd>
+          </div>
+          <div>
+            <dt>Market V1, kept for its record</dt>
+            <dd>
+              <a className="mono" href={addressUrl(MARKET_V1_ADDRESS)} target="_blank" rel="noreferrer">
+                {MARKET_V1_ADDRESS}
               </a>
             </dd>
           </div>

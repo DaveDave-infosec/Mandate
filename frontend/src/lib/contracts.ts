@@ -47,6 +47,8 @@ export const KNOWN_ACTORS: Record<string, string> = {
 };
 
 export const LIVE_RUN_ROOT = "m_0";
+/** Root of the V2 live proof run: deliveries, bands, a challenge and an expiry. */
+export const V2_RUN_ROOT = "m_9";
 
 /** The market's issuer: the only address that can mint GEN. */
 export const ISSUER = "0x7bbcac9c77aabc2aca19cd34f944fbc015f06a54";
