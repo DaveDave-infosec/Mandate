@@ -180,6 +180,44 @@ def make_hook(llm_stub, fake):
     return hook
 
 
+class RoutedWorld:
+    """Several fake contracts at distinct addresses. Each cross-contract view is answered by the contract
+    at the address actually called, so a market that reads the wrong registry sees the wrong data."""
+
+    def __init__(self, contracts):
+        self.contracts = {a.lower(): c for a, c in contracts.items()}
+        self.calls = []
+
+    def answer(self, address, method, args):
+        key = address.lower()
+        self.calls.append((key, method))
+        if key not in self.contracts:
+            raise AssertionError("call to an unknown contract " + key)
+        return getattr(self.contracts[key], method)(*args)
+
+
+def make_routed_hook(llm_stub, world):
+    def hook(vm, request):
+        if not isinstance(request, dict):
+            return None
+        if "ExecPromptTemplate" in request:
+            response = llm_stub.next(request["ExecPromptTemplate"])
+            from genlayer.py import calldata
+            return calldata.encode({"ok": response})
+        if "CallContract" in request:
+            call = request["CallContract"]
+            addr = call["address"]
+            addr_hex = addr.as_hex if hasattr(addr, "as_hex") else "0x" + bytes(addr).hex()
+            method = call["calldata"]["method"]
+            args = call["calldata"].get("args", [])
+            result = world.answer(addr_hex, method, args)
+            from genlayer.py import calldata
+            return bytes([0]) + calldata.encode(result)
+        return None
+
+    return hook
+
+
 _ADDRESS_NAMES = ("principal", "agent_a", "agent_b", "agent_c", "agent_d", "agent_e", "vendor", "vendor2", "bystander")
 
 
@@ -207,7 +245,7 @@ def registry_env(deployer="principal"):
 
 
 @contextmanager
-def market_env(fake, issuer, max_supply, deployer="principal", registry=None):
+def market_env(fake, issuer, max_supply, deployer="principal", registry=None, world=None):
     """Fresh VM, market deployed against a FakeRegistry, hook installed.
 
     issuer: an env address name ("principal", ...) or any "0x..." hex string.
@@ -219,7 +257,7 @@ def market_env(fake, issuer, max_supply, deployer="principal", registry=None):
         addr, hx = _make_addresses()
         vm.sender = getattr(addr, deployer)
         llm = LLMStub()
-        vm._gl_call_hook = make_hook(llm, fake)
+        vm._gl_call_hook = make_hook(llm, fake) if world is None else make_routed_hook(llm, world)
         issuer_hx = getattr(hx, issuer, issuer)
         registry_hx = "0x" + "aa" * 20 if registry is None else registry
         contract = deploy_contract(MARKET_PATH, vm, registry_hx, issuer_hx, max_supply, sdk_version=SDK)
@@ -240,7 +278,7 @@ CHALLENGE_WINDOW = 1800
 
 
 @contextmanager
-def market_v2_env(fake, issuer="principal", max_supply=1000, legacy=None, deployer="principal", now=NOW):
+def market_v2_env(fake, issuer="principal", max_supply=1000, legacy=None, deployer="principal", now=NOW, registry=None, world=None):
     """Fresh VM, V2 market deployed against a FakeRegistry, chain time set to now.
 
     legacy: None for a dummy V1 market address answered by the fake, "" for none.
@@ -250,9 +288,9 @@ def market_v2_env(fake, issuer="principal", max_supply=1000, legacy=None, deploy
         addr, hx = _make_addresses()
         vm.sender = getattr(addr, deployer)
         llm = LLMStub()
-        vm._gl_call_hook = make_hook(llm, fake)
+        vm._gl_call_hook = make_hook(llm, fake) if world is None else make_routed_hook(llm, world)
         issuer_hx = getattr(hx, issuer, issuer)
-        registry_hx = "0x" + "aa" * 20
+        registry_hx = "0x" + "aa" * 20 if registry is None else registry
         legacy_hx = "0x" + "bb" * 20 if legacy is None else legacy
         env = SimpleNamespace(vm=vm, llm=llm, addr=addr, hx=hx, issuer=issuer_hx, registry=registry_hx, legacy=legacy_hx)
         set_chain_time(env, now)
@@ -269,3 +307,9 @@ def band(v: str, violated: str = "", reasoning: str = "stub reasoning", minority
         "minority_note": minority,
         "evidence": evidence,
     })
+
+
+def sha(body) -> str:
+    import hashlib
+    data = body.encode("utf-8") if isinstance(body, str) else bytes(body)
+    return hashlib.sha256(data).hexdigest()

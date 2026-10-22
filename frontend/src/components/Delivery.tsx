@@ -1,5 +1,5 @@
-import type { CSSProperties, ReactNode } from "react";
-import type { Purchase } from "../lib/mandate";
+import { useState, type CSSProperties, type ReactNode } from "react";
+import { getDeliveryContent, type Purchase } from "../lib/mandate";
 import type { Store } from "../lib/store";
 import Who from "./Who";
 
@@ -147,7 +147,7 @@ function Review({
       <h4 className="verdict__title">{title}</h4>
       {evidence !== "" && (
         <figure className="evidence">
-          <figcaption>Quoted by validators from the delivered content</figcaption>
+          <figcaption>Quoted by validators from the bound content</figcaption>
           <blockquote className="mono">{evidence}</blockquote>
         </figure>
       )}
@@ -159,6 +159,40 @@ function Review({
         </div>
       )}
     </div>
+  );
+}
+
+/** The exact content every review of this purchase read, loaded from the chain on demand. */
+function BoundContent({ id }: { id: string }) {
+  const [text, setText] = useState<string | null>(null);
+  const [state, setState] = useState<"idle" | "loading" | "error">("idle");
+  const load = async () => {
+    setState("loading");
+    try {
+      setText(await getDeliveryContent(id));
+      setState("idle");
+    } catch {
+      setState("error");
+    }
+  };
+  if (text !== null) {
+    return (
+      <figure className="evidence bound">
+        <figcaption>
+          The content stored on-chain at delivery. The first review, any forcing review and any challenge all read exactly
+          this, never the URL again.
+        </figcaption>
+        <pre className="bound__text mono">{text}</pre>
+      </figure>
+    );
+  }
+  return (
+    <p className="bound__load">
+      <button type="button" className="btn" onClick={load} disabled={state === "loading"}>
+        {state === "loading" ? "Reading it from the chain..." : "Read the bound content"}
+      </button>
+      {state === "error" && <span className="act-status act-status--error"> Could not reach the chain. Try again.</span>}
+    </p>
   );
 }
 
@@ -180,7 +214,7 @@ export function DeliveryDetail({ p, store }: { p: Purchase; store: Store }) {
         </div>
         {delivered && (
           <div className="facts__wide">
-            <dt>Delivered at this URL, fetched by every validator</dt>
+            <dt>Delivered at this URL, fetched once by validators at delivery</dt>
             <dd>
               <a className="delivery__url mono" href={p.url} target="_blank" rel="noreferrer">
                 {p.url}
@@ -188,12 +222,21 @@ export function DeliveryDetail({ p, store }: { p: Purchase; store: Store }) {
             </dd>
           </div>
         )}
+        {delivered && p.content_sha256 !== "" && (
+          <div className="facts__wide">
+            <dt>Bound content: SHA-256 committed by the vendor and checked by consensus</dt>
+            <dd className="delivery__hash mono">
+              {p.content_sha256} <span className="delivery__bytes">{Number(p.content_bytes).toLocaleString("en-US")} bytes</span>
+            </dd>
+          </div>
+        )}
       </dl>
+      {delivered && p.content_sha256 !== "" && <BoundContent id={p.id} />}
 
       {p.verdict !== "" && (
         <>
           <Review
-            title={`First review: validators fetched the delivery and returned ${p.verdict}`}
+            title={`First review: validators read the bound content and returned ${p.verdict}`}
             reasoning={p.reasoning}
             dissent={p.minority_note}
             evidence={p.evidence}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useStore } from "../lib/useStore";
+import { V1_RECORD } from "../lib/store";
 import { RECEIPTS, txUrl } from "../lib/contracts";
 
 /**
@@ -8,7 +8,7 @@ import { RECEIPTS, txUrl } from "../lib/contracts";
  * and the purchase that stayed inside every mandate.
  */
 export default function HeroStory() {
-  const { store } = useStore();
+  const store = V1_RECORD;
   const [run, setRun] = useState(0);
   const root = store.mandates["m_0"];
   const narrow = store.mandates["m_1"];

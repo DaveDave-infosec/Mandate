@@ -74,6 +74,8 @@ export interface Purchase {
   deliver_by: string;
   status: string;
   url: string;
+  content_sha256: string;
+  content_bytes: string;
   delivered_at: string;
   verdict: string;
   reasoning: string;
@@ -164,7 +166,7 @@ const ITEM_KEYS: readonly (keyof Item)[] = [
 
 export const PURCHASE_KEYS: readonly (keyof Purchase)[] = [
   "id", "market", "capability", "buyer", "vendor", "item", "price", "root", "mandate", "hops", "at",
-  "deliver_by", "status", "url", "delivered_at", "verdict", "reasoning", "minority_note",
+  "deliver_by", "status", "url", "content_sha256", "content_bytes", "delivered_at", "verdict", "reasoning", "minority_note",
   "violated_restriction", "evidence", "escalated", "escalation_verdict", "escalation_reasoning",
   "escalation_minority_note", "escalation_evidence", "escalated_by", "band", "band_source",
   "challenge_until", "challenged", "challenger", "challenger_role", "challenge_text", "challenge_verdict",
@@ -319,6 +321,11 @@ export async function getPurchase(purId: string): Promise<Purchase | null> {
   const rec = fillRecord(raw, PURCHASE_KEYS) as unknown as Purchase;
   rec.market = "v2";
   return rec;
+}
+
+export async function getDeliveryContent(purId: string): Promise<string> {
+  const raw = normalize(await readMarket("get_delivery_content", [purId]));
+  return typeof raw === "string" ? raw : "";
 }
 
 export async function getTotalMinted(): Promise<number> {

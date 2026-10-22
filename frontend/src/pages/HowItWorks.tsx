@@ -20,7 +20,7 @@ const STEPS = [
   },
   {
     title: "The market holds the money, and validators read the delivery",
-    body: "An authorized request becomes a single-use capability. At purchase the market re-reads the chain, checks every hop is active and unexpired on chain time, charges every hop's budget, and moves the price out of the root's escrow. The price is held, not paid. The vendor then submits one URL. Every validator fetches it and grades what is actually there: full, most, half or none. A delivery that breaks any restriction in any mandate is none, even when it matches the listing. Unclear is held until anyone forces one final review.",
+    body: "An authorized request becomes a single-use capability. At purchase the market re-reads the chain, checks every hop is active and unexpired on chain time, charges every hop's budget, and moves the price out of the root's escrow. The price is held, not paid. The vendor then submits one URL and the SHA-256 hash of the file. Validators fetch it once and must agree on the exact bytes, which must match the hash. That content is stored on-chain, and every review reads the stored copy, never the URL again. Validators grade what is actually there: full, most, half or none. A delivery that breaks any restriction in any mandate is none, even when it matches the listing. Unclear is held until anyone forces one final review.",
     code: "purchase, deliver, escalate_delivery",
   },
   {
@@ -42,10 +42,10 @@ export default function HowItWorks() {
         <header className="doc__head">
           <h1 className="doc__title">How it works</h1>
           <p className="doc__lede">
-            Two contracts on GenLayer Studio. The registry holds mandates, the catalog and purchase requests. The V2
-            market holds the GEN ledger, holds every price until validators read the delivery, and only reads the
-            registry. Neither has an owner. The V1 market stays live for its record, and V2 checks it so no request is
-            ever bought twice.
+            Mandate V2 runs on two contracts on GenLayer Studio. The registry holds mandates, the catalog and purchase
+            requests. The market holds the GEN ledger, holds every price until validators read the delivery, and only reads
+            its own registry. Neither has an owner. The V1 pair stays live for its record, on a registry of its own, so no
+            two markets ever share a capability, a mandate or a budget.
           </p>
         </header>
 
@@ -72,7 +72,7 @@ export default function HowItWorks() {
             <li>Restrictions are inherited. A child that leaves a restriction out has not widened anything; a child that adds a purpose has.</li>
             <li>Each answer must be JSON with a verdict from a fixed set, the violated clause, the reasoning and the strongest dissent. Anything else reverts.</li>
             <li>An identical delegation, or an item already refused under a mandate, cannot be resubmitted to fish for a different verdict.</li>
-            <li>For a delivery, every validator fetches the vendor's URL itself. Nobody describes the delivery to them, and each verdict stores a short quote of what they read.</li>
+            <li>For a delivery, validators fetch the vendor's URL once and must agree on the exact bytes, which must match the hash the vendor committed to. Nobody describes the delivery to them. Every review reads that stored copy, and each verdict stores a short quote of what was read.</li>
             <li>A challenge is passed as an argument, not evidence. Validators check each claim against the fetched content and give it weight only where the content bears it out.</li>
           </ul>
         </section>
@@ -80,11 +80,11 @@ export default function HowItWorks() {
         <section className="doc__section">
           <h2>Honest limitations</h2>
           <ul className="doc__list">
-            <li>Validators grade what the delivery URL returns when they fetch it. A vendor could change the content later, so each verdict stores a quote of what was read.</li>
+            <li>A delivery is capped at 16000 bytes, so the stored copy and its hash always cover all of it. Larger deliverables would need to be summarised or split.</li>
             <li>Validators can be wrong on genuinely ambiguous wording. That is why unclear verdicts are held, unresolved ones refuse, and an unresolved delivery pays nothing.</li>
             <li>Four fixed categories: infrastructure, software license, data service, marketing. Three hops below the human.</li>
             <li>The market runs every deadline, window and expiry on the transaction's own timestamp. The registry still takes a time from the caller when it records a delegation or a request, and the market re-checks every expiry on chain time before money moves.</li>
-            <li>The testnet windows are short so a run fits in one sitting: 15 minutes to deliver, 10 minutes to challenge.</li>
+            <li>The testnet windows are short so a run fits in one sitting: 20 minutes to deliver, 15 minutes to challenge.</li>
             <li>GEN is a whole-number unit, so a partial band rounds the vendor's share down. Paid plus refunded always equals the price.</li>
             <li>Only the issuer can mint GEN on this testnet deployment, so funding escrow needs GEN from the issuer.</li>
           </ul>

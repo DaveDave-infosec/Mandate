@@ -326,8 +326,8 @@ export async function purchase(capId: string): Promise<WriteResultWithId> {
   return { hash, id };
 }
 
-export async function deliver(purchaseId: string, url: string): Promise<WriteResult> {
-  const hash = await send("market", "deliver", [purchaseId, url.trim()]);
+export async function deliver(purchaseId: string, url: string, contentSha256: string): Promise<WriteResult> {
+  const hash = await send("market", "deliver", [purchaseId, url.trim(), contentSha256.trim().toLowerCase()]);
   return { hash };
 }
 

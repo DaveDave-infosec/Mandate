@@ -3,6 +3,7 @@ import { balanceOf } from "../lib/mandate";
 import { LIVE_RUN_ROOT, V2_RUN_ROOT } from "../lib/contracts";
 import { SLOT_LABELS, useWallet, type SlotLabel } from "../lib/wallet";
 import { useStore } from "../lib/useStore";
+import { V1_RECORD } from "../lib/store";
 import { buildRows, nowSeconds, rootsOf, summarize, type ChainSummary } from "../lib/ledger";
 import { effectiveState } from "../lib/tree";
 import Ledger from "../components/Ledger";
@@ -143,8 +144,14 @@ export function ConsolePage() {
   const me = active ? active.address.toLowerCase() : "";
   const [focus, setFocus] = useState("");
   const roots = useMemo(() => rootsOf(store), [store]);
-  const [rootId, setRootId] = useState(V2_RUN_ROOT);
-  const [openIds, setOpenIds] = useState<Set<string>>(() => new Set(["m_2", "c_6"]));
+  const [rootId, setRootIdRaw] = useState(V2_RUN_ROOT);
+  const [source, setSource] = useState<"live" | "v1">("live");
+  const setRootId = (id: string) => {
+    setSource("live");
+    setRootIdRaw(id);
+  };
+  const [openLive, setOpenLive] = useState<Set<string>>(() => new Set());
+  const [openV1, setOpenV1] = useState<Set<string>>(() => new Set(["m_2"]));
   const [, setTick] = useState(0);
   useEffect(() => {
     const t = window.setInterval(() => setTick((x) => x + 1), 30_000);
@@ -169,14 +176,19 @@ export function ConsolePage() {
   );
   const openPurchase = (capId: string, rootOfIt: string) => {
     setRootId(rootOfIt);
-    setOpenIds((prev) => new Set(prev).add(capId));
+    setOpenLive((prev) => new Set(prev).add(capId));
     setScrollTo(capId);
   };
 
-  const activeRoot = store.mandates[rootId] ? rootId : (roots[0]?.id ?? "");
-  const root = store.mandates[activeRoot];
-  const rows = useMemo(() => buildRows(store, activeRoot, now), [store, activeRoot, now]);
+  // The V1 record lives on the V1 registry, apart from the live store: both registries number from m_0.
+  const view: "live" | "v1" = source === "live" && roots.length === 0 ? "v1" : source;
+  const viewStore = view === "v1" ? V1_RECORD : store;
+  const activeRoot = view === "v1" ? LIVE_RUN_ROOT : store.mandates[rootId] ? rootId : (roots[0]?.id ?? "");
+  const root = viewStore.mandates[activeRoot];
+  const rows = useMemo(() => buildRows(viewStore, activeRoot, now), [viewStore, activeRoot, now]);
   const summary = useMemo(() => summarize(rows), [rows]);
+  const openIds = view === "v1" ? openV1 : openLive;
+  const setOpenIds = view === "v1" ? setOpenV1 : setOpenLive;
 
   const toggle = (id: string) =>
     setOpenIds((prev) => {
@@ -194,7 +206,7 @@ export function ConsolePage() {
     if (!m && !c) return;
     const rootOf = m ? m.root_id : store.mandates[c!.mandate_id]?.root_id;
     if (rootOf) setRootId(rootOf);
-    setOpenIds((prev) => new Set(prev).add(focus));
+    setOpenLive((prev) => new Set(prev).add(focus));
     setFocus("");
   }, [focus, store]);
 
@@ -204,19 +216,19 @@ export function ConsolePage() {
   };
 
   const renderActions = (row: Row) =>
-    row.kind === "mandate" ? (
+    view === "v1" ? null : row.kind === "mandate" ? (
       <MandateActions m={row.mandate} store={store} now={now} onDone={onDone} />
     ) : (
       <SlipActions cap={row.cap} store={store} now={now} onDone={onDone} />
     );
 
   const canAct = (row: Row) => {
-    if (me === "") return false;
+    if (me === "" || view === "v1") return false;
     if (row.kind === "mandate") return Object.values(mandateAvailability(row.mandate, me, store, now)).some(Boolean);
     return Object.values(slipAvailability(row.cap, me, store, now)).some(Boolean);
   };
 
-  const rootState = root ? effectiveState(root, store.mandates, now) : "";
+  const rootState = root ? effectiveState(root, viewStore.mandates, now) : "";
   const rootExpired = root ? Number(root.expiry) < now : false;
 
   return (
@@ -253,22 +265,32 @@ export function ConsolePage() {
       <WalletBar version={lastRefreshed ? lastRefreshed.getTime() : 0} onDone={onDone} />
       <IssueRootPanel store={store} onDone={onDone} />
 
-      {roots.length > 1 && (
-        <nav className="chains" aria-label="Delegation chains">
-          {roots.map((r) => (
+      <nav className="chains" aria-label="Delegation chains">
+        {roots.map((r) => {
+          const on = view === "live" && r.id === activeRoot;
+          return (
             <button
               key={r.id}
               type="button"
-              className={"chains__tab" + (r.id === activeRoot ? " chains__tab--on" : "")}
-              aria-pressed={r.id === activeRoot}
+              className={"chains__tab" + (on ? " chains__tab--on" : "")}
+              aria-pressed={on}
               onClick={() => setRootId(r.id)}
             >
               <span className="mono">{r.id}</span>
               <span className="chains__text">{r.text}</span>
             </button>
-          ))}
-        </nav>
-      )}
+          );
+        })}
+        <button
+          type="button"
+          className={"chains__tab" + (view === "v1" ? " chains__tab--on" : "")}
+          aria-pressed={view === "v1"}
+          onClick={() => setSource("v1")}
+        >
+          <span className="mono">V1 record</span>
+          <span className="chains__text">{V1_RECORD.mandates[LIVE_RUN_ROOT]?.text ?? ""}</span>
+        </button>
+      </nav>
 
       {!root ? (
         <p className="empty">No root mandates on chain yet. A principal issues the first one.</p>
@@ -276,8 +298,8 @@ export function ConsolePage() {
         <>
           <section className="charter" aria-label="Root mandate">
             <p className="charter__by">
-              {activeRoot === LIVE_RUN_ROOT && <span className="charter__tag">V1 live proof run</span>}
-              {activeRoot === V2_RUN_ROOT && <span className="charter__tag">V2 live proof run</span>}
+              {view === "v1" && <span className="charter__tag">V1 live proof run, on the V1 registry</span>}
+              {view === "live" && activeRoot === V2_RUN_ROOT && <span className="charter__tag">V2 live proof run</span>}
               Root <span className="mono">{root.id}</span>, written by <Who addr={root.grantor} /> for{" "}
               <Who addr={root.grantee} />
             </p>
@@ -301,7 +323,7 @@ export function ConsolePage() {
           </div>
           <Ledger
             rows={rows}
-            store={store}
+            store={viewStore}
             openIds={openIds}
             onToggle={toggle}
             renderActions={renderActions}

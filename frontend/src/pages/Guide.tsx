@@ -28,11 +28,11 @@ const STEPS = [
   },
   {
     title: "Deliver as the Vendor",
-    body: "Sign as Vendor and find the purchase under Deliveries, marked Yours to deliver. Paste one https URL to what you delivered, a raw text or CSV link reads best. Every validator fetches it and grades it full, most, half or none against your listing and every mandate in the chain. You have 15 minutes, and if you miss it anyone can refund the buyer.",
+    body: "Sign as Vendor and find the purchase under Deliveries, marked Yours to deliver. Paste one https URL to what you delivered, a raw text or CSV link reads best, then click Compute it from the URL to fill in its SHA-256 hash. Validators fetch it once, check it matches your hash, store it on-chain and grade it full, most, half or none against your listing and every mandate in the chain. You have 20 minutes, and if you miss it anyone can refund the buyer.",
   },
   {
     title: "Challenge it, or let it settle",
-    body: "For 10 minutes the band is open to one challenge. Sign as any wallet in the chain to argue for a lower band, or as the Vendor to argue for a higher one. Validators re-read the delivery with your words and settle it at once. With no challenge, anyone clicks Settle now after the window, and the split is shown on the record.",
+    body: "For 15 minutes the band is open to one challenge. Sign as any wallet in the chain to argue for a lower band, or as the Vendor to argue for a higher one. Validators re-read the stored delivery with your words and settle it at once. With no challenge, anyone clicks Settle now after the window, and the split is shown on the record.",
   },
   {
     title: "Pull it all back",

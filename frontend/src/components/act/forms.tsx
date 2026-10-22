@@ -649,12 +649,32 @@ export function SlipActions({
   const can = slipAvailability(cap, me, store, now);
   const act = useAction();
   const [url, setUrl] = useState("");
+  const [contentHash, setContentHash] = useState("");
+  const [hashNote, setHashNote] = useState("");
   const [grounds, setGrounds] = useState("");
   const pid = store.purchases[cap.id] ?? "";
   const p = pid ? store.purchaseRecords[pid] : undefined;
   const isVendor = p !== undefined && me === p.vendor.toLowerCase();
   if (!active || !Object.values(can).some(Boolean)) return null;
   const urlOk = /^https:\/\/[^\s"'<>]{4,292}$/.test(url.trim());
+  const hashOk = /^[0-9a-f]{64}$/.test(contentHash.trim().toLowerCase());
+  const computeHash = async () => {
+    setHashNote("Fetching the file in your browser...");
+    try {
+      const res = await fetch(url.trim(), { cache: "no-store" });
+      if (!res.ok) throw new Error(`the URL returned ${res.status}`);
+      const bytes = await res.arrayBuffer();
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      const hex = Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+      setContentHash(hex);
+      setHashNote(`Hashed ${bytes.byteLength.toLocaleString("en-US")} bytes. This is what you commit to.`);
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      setHashNote(`Could not fetch it from the browser (${why}). Paste the SHA-256 yourself, for example from sha256sum or Get-FileHash.`);
+    }
+  };
   const groundsOk = grounds.trim().length >= 10 && grounds.trim().length <= 1000;
   return (
     <section className="act" aria-label="Actions">
@@ -746,31 +766,56 @@ export function SlipActions({
           className="act-form act-form--inline"
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
-            if (!urlOk) return;
+            if (!urlOk || !hashOk) return;
             act.run(
-              () => deliver(pid, url),
+              () => deliver(pid, url, contentHash),
               () => {
                 setUrl("");
+                setContentHash("");
+                setHashNote("");
                 onDone(cap.id);
               },
-              () => "Delivered. Validators fetched your URL and graded it. Their verdict is in the record."
+              () =>
+                "Delivered. Validators fetched your URL, matched it to your hash, stored the content on-chain and graded it."
             );
           }}
         >
           <Field
             label="Deliver: the URL of what you delivered"
-            hint="https only. Every validator fetches this URL itself and reads the content against your listing and every mandate in the chain. A raw text or CSV link reads best. You get one delivery."
+            hint="https only, at most 16000 bytes. Validators fetch it once, here and now. A raw text or CSV link reads best. You get one delivery."
           >
             <input
               className="input mono"
               value={url}
-              onChange={(e) => setUrl(e.target.value)}
+              onChange={(e) => {
+                setUrl(e.target.value);
+                setContentHash("");
+                setHashNote("");
+              }}
               placeholder="https://gist.githubusercontent.com/..."
               spellCheck={false}
             />
           </Field>
+          <Field
+            label="SHA-256 of the delivered file"
+            hint="You commit to these exact bytes. If the URL serves anything else, the delivery reverts. The content is then stored on-chain, and every later review reads that stored copy, never the URL."
+          >
+            <input
+              className="input mono"
+              value={contentHash}
+              onChange={(e) => setContentHash(e.target.value.trim().toLowerCase())}
+              placeholder="64 hex characters"
+              spellCheck={false}
+            />
+          </Field>
+          <div className="act__buttons">
+            <button type="button" className="btn" disabled={!urlOk || act.busy} onClick={computeHash}>
+              Compute it from the URL
+            </button>
+          </div>
+          {hashNote !== "" && <p className="act-form__note">{hashNote}</p>}
           <p className="act-form__note">Deadline {fmtDeadline(p.deliver_by)}.</p>
-          <button type="submit" className="btn btn--primary" disabled={act.busy || !urlOk}>
+          <button type="submit" className="btn btn--primary" disabled={act.busy || !urlOk || !hashOk}>
             Send to validators
           </button>
         </form>

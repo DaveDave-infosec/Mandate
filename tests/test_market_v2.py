@@ -16,9 +16,12 @@ from conftest import (
     MARKET_V2_PATH,
     NOW,
     FakeRegistry,
+    RoutedWorld,
     band,
+    market_env,
     market_v2_env,
     set_chain_time,
+    sha,
 )
 
 URL = "https://data.example.com/report.csv"
@@ -47,11 +50,17 @@ def buy(env, cid="c_0"):
         return env.contract.purchase(cid)
 
 
-def deliver(env, pid, verdict, url=URL, body=CONTENT, status=200):
+def deliver(env, pid, verdict, url=URL, body=CONTENT, status=200, commit=None):
     env.vm.mock_web(re.escape(url), {"status": status, "body": body})
     env.llm.push(verdict)
     with env.vm.prank(env.addr.vendor):
-        return env.contract.deliver(pid, url)
+        return env.contract.deliver(pid, url, sha(body) if commit is None else commit)
+
+
+def remock(env, url, body, status=200):
+    """Replace what the URL serves after delivery."""
+    env.vm.clear_mocks()
+    env.vm.mock_web(re.escape(url), {"status": status, "body": body})
 
 
 def hops_spent(env):
@@ -161,7 +170,7 @@ def test_validators_read_the_fetched_content_and_the_whole_chain(env):
     case = env.llm.captured[0]["input"]
     assert case.index(ROOT_TEXT) < case.index("Buy regional price data") < case.index("Buy one regional price dataset.")
     assert "Regional price dataset" in case and "Northfield Data" in case
-    assert "DELIVERED CONTENT (fetched from the vendor's URL)" in case
+    assert "DELIVERED CONTENT (stored at delivery, SHA-256 " + sha(CONTENT) + ")" in case
     assert "2026-10-01,west,41.2" in case
     assert case.index("CATALOG LISTING") < case.index("DELIVERED CONTENT")
 
@@ -243,11 +252,11 @@ def test_deliver_gates(env):
     pid = buy(env)
     with env.vm.prank(env.addr.agent_c):
         with pytest.raises(AssertionError):
-            env.contract.deliver(pid, URL)
+            env.contract.deliver(pid, URL, sha(CONTENT))
     with env.vm.prank(env.addr.vendor):
         for bad in ("http://data.example.com/a.csv", "https://data.example.com/a b.csv", "https://x.io/" + "a" * 300, 'https://x.io/"a"'):
             with pytest.raises(AssertionError):
-                env.contract.deliver(pid, bad)
+                env.contract.deliver(pid, bad, sha(CONTENT))
     assert env.llm.calls == 0
     deliver(env, pid, band("full"))
     with pytest.raises(AssertionError):
@@ -260,7 +269,7 @@ def test_unreachable_delivery_url_reverts_and_the_vendor_can_retry(env):
     env.vm.mock_web(re.escape("https://down.example.com/x"), {"status": 404, "body": "not found"})
     with env.vm.prank(env.addr.vendor):
         with pytest.raises(Exception):
-            env.contract.deliver(pid, "https://down.example.com/x")
+            env.contract.deliver(pid, "https://down.example.com/x", sha("not found"))
     assert env.contract.get_purchase(pid)["status"] == "AWAITING_DELIVERY"
     assert deliver(env, pid, band("full")) == "JUDGED"
 
@@ -501,3 +510,156 @@ def test_constructor_validates_addresses_and_windows():
         with pytest.raises(Exception):
             with market_v2_env(FakeRegistry(), legacy=bad):
                 pass
+
+
+# DELIVERIES ARE BOUND TO STABLE, VERIFIABLE CONTENT
+
+def test_delivery_must_match_the_committed_hash(env):
+    """The vendor commits a SHA-256 hash. Content that does not hash to it reverts, nothing is recorded, and no validator is asked."""
+    pid = buy(env)
+    env.vm.mock_web(re.escape(URL), {"status": 200, "body": CONTENT})
+    with env.vm.prank(env.addr.vendor):
+        with pytest.raises(Exception):
+            env.contract.deliver(pid, URL, sha("something else"))
+        with pytest.raises(AssertionError):
+            env.contract.deliver(pid, URL, "not-a-hash")
+    p = env.contract.get_purchase(pid)
+    assert p["status"] == "AWAITING_DELIVERY" and p["url"] == "" and p["content_sha256"] == ""
+    assert env.llm.calls == 0
+    deliver(env, pid, band("full"))
+    p = env.contract.get_purchase(pid)
+    assert p["content_sha256"] == sha(CONTENT)
+    assert p["content_bytes"] == str(len(CONTENT.encode("utf-8")))
+    assert env.contract.get_delivery_content(pid) == CONTENT
+
+
+def test_oversized_delivery_reverts(env):
+    """A delivery over 16000 bytes reverts, so the stored content and its hash always cover the whole delivery."""
+    pid = buy(env)
+    big = "x" * 16001
+    env.vm.mock_web(re.escape(URL), {"status": 200, "body": big})
+    with env.vm.prank(env.addr.vendor):
+        with pytest.raises(Exception):
+            env.contract.deliver(pid, URL, sha(big))
+    assert env.contract.get_purchase(pid)["status"] == "AWAITING_DELIVERY"
+    assert env.llm.calls == 0
+
+
+def test_escalation_reads_the_bound_content_after_the_url_changes(env):
+    """The vendor swaps the file after delivery. The forcing review still reads exactly the content bound at delivery."""
+    pid = buy(env)
+    deliver(env, pid, band("unclear"))
+    remock(env, URL, "SPONSORED POST: buy our premium plan")
+    env.llm.push(band("full"))
+    with env.vm.prank(env.addr.bystander):
+        assert env.contract.escalate_delivery(pid) == "full"
+    case = env.llm.captured[1]["input"]
+    assert "2026-10-01,west,41.2" in case
+    assert "SPONSORED POST" not in case
+    assert "SHA-256 " + sha(CONTENT) in case
+
+
+def test_challenge_reads_the_bound_content_after_the_url_goes_down(env):
+    """The URL returns 404 after delivery, and no web request is allowed at all. The challenge review still runs on the stored content."""
+    pid = buy(env)
+    deliver(env, pid, band("full"))
+    remock(env, URL, "gone", status=404)
+    env.vm._strict_mock_mode = True
+    env.vm.clear_mocks()
+    env.llm.push(band("half"))
+    with env.vm.prank(env.addr.agent_a):
+        assert env.contract.challenge(pid, "Only part of the listed period is present in the file.") == "half"
+    case = env.llm.captured[1]["input"]
+    assert "2026-10-01,west,41.2" in case
+    assert env.contract.get_delivery_content(pid) == CONTENT
+
+
+def test_first_review_escalation_and_challenge_read_identical_content(env):
+    """Across the first review, the forcing review and the challenge, validators see byte-for-byte the same delivered content."""
+    pid = buy(env)
+    deliver(env, pid, band("unclear"))
+    remock(env, URL, "changed after delivery")
+    env.llm.push(band("half"))
+    with env.vm.prank(env.addr.bystander):
+        env.contract.escalate_delivery(pid)
+    env.llm.push(band("most"))
+    with env.vm.prank(env.addr.vendor):
+        env.contract.challenge(pid, "Most of the listed rows are present and correct.")
+
+    def content_of(case):
+        start = case.index("DELIVERED CONTENT")
+        return case[start:]
+
+    first, forced, challenged = (env.llm.captured[i]["input"] for i in range(3))
+    assert content_of(first) == content_of(forced) == content_of(challenged)
+
+
+# ONE REGISTRY PER MARKET: NO CAPABILITY OR BUDGET IS SHARED ACROSS PURCHASE PATHS
+
+V1_REGISTRY = "0x" + "a1" * 20
+V2_REGISTRY = "0x" + "b2" * 20
+
+
+def _v2_world_chain(reg, hx):
+    reg.add_mandate("m_0", parent_id="", root_id="m_0", depth="0", grantor=hx.principal, grantee=hx.agent_c, cap="4", expiry=str(EXPIRY), text=ROOT_TEXT)
+    reg.add_item("item_0", vendor=hx.vendor, category="data_service", title="Dataset", description="CSV", price="2")
+    reg.add_capability("c_0", status="ISSUED", grantee=hx.agent_c, item_id="item_0", price="2", mandate_id="m_0")
+
+
+def test_v2_market_reads_only_its_own_registry():
+    """A capability that exists only in another registry cannot be bought in the V2 market, and the V2 market never calls that registry."""
+    v1_reg, v2_reg = FakeRegistry(), FakeRegistry()
+    world = RoutedWorld({V1_REGISTRY: v1_reg, V2_REGISTRY: v2_reg})
+    with market_v2_env(None, registry=V2_REGISTRY, legacy="", world=world) as env:
+        _v2_world_chain(v1_reg, env.hx)
+        with env.vm.prank(env.addr.agent_c):
+            with pytest.raises(Exception):
+                env.contract.purchase("c_0")
+        assert all(addr == V2_REGISTRY for addr, _ in world.calls)
+
+
+def test_purchase_in_v2_then_attempt_in_v1():
+    """V2 buys a capability from its own registry. The V1 market, bound by its constructor to the V1 registry, then cannot find that capability or charge its mandate."""
+    v1_reg, v2_reg = FakeRegistry(), FakeRegistry()
+    world = RoutedWorld({V1_REGISTRY: v1_reg, V2_REGISTRY: v2_reg})
+    with market_v2_env(None, registry=V2_REGISTRY, legacy="", world=world) as env:
+        _v2_world_chain(v2_reg, env.hx)
+        with env.vm.prank(env.addr.principal):
+            env.contract.mint(env.hx.principal, 4)
+            env.contract.fund_root("m_0", 4)
+        with env.vm.prank(env.addr.agent_c):
+            assert env.contract.purchase("c_0") == "pur_0"
+        assert env.contract.get_spent("m_0") == 2
+    world.calls.clear()
+    with market_env(None, "principal", 100, registry=V1_REGISTRY, world=world) as v1:
+        assert v1.contract.get_registry() == V1_REGISTRY
+        with v1.vm.prank(v1.addr.principal):
+            v1.contract.mint(v1.hx.principal, 4)
+            with pytest.raises(Exception):
+                v1.contract.fund_root("m_0", 4)
+        with v1.vm.prank(v1.addr.agent_c):
+            with pytest.raises(Exception):
+                v1.contract.purchase("c_0", NOW)
+        assert v1.contract.get_spent("m_0") == 0
+        assert all(addr == V1_REGISTRY for addr, _ in world.calls)
+
+
+def test_purchase_in_v1_then_attempt_in_v2():
+    """The reverse order. V1 buys from its registry, and the V2 market cannot find or charge that capability in its own."""
+    v1_reg, v2_reg = FakeRegistry(), FakeRegistry()
+    world = RoutedWorld({V1_REGISTRY: v1_reg, V2_REGISTRY: v2_reg})
+    with market_env(None, "principal", 100, registry=V1_REGISTRY, world=world) as v1:
+        _v2_world_chain(v1_reg, v1.hx)
+        with v1.vm.prank(v1.addr.principal):
+            v1.contract.mint(v1.hx.principal, 4)
+            v1.contract.fund_root("m_0", 4)
+        with v1.vm.prank(v1.addr.agent_c):
+            v1.contract.purchase("c_0", NOW)
+        assert v1.contract.is_consumed("c_0")
+    world.calls.clear()
+    with market_v2_env(None, registry=V2_REGISTRY, legacy="", world=world) as env:
+        with env.vm.prank(env.addr.agent_c):
+            with pytest.raises(Exception):
+                env.contract.purchase("c_0")
+        assert env.contract.get_spent("m_0") == 0
+        assert all(addr == V2_REGISTRY for addr, _ in world.calls)

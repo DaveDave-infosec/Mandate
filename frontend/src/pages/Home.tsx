@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useStore } from "../lib/useStore";
+import { V1_RECORD } from "../lib/store";
 import { RECEIPTS, txUrl } from "../lib/contracts";
 import HeroStory from "../components/HeroStory";
 import StateBadge from "../components/StateBadge";
@@ -46,7 +46,7 @@ const STATES = [
 ];
 
 function SplitRecord() {
-  const { store } = useStore();
+  const store = V1_RECORD;
   const m = store.mandates["m_6"];
   if (!m) return null;
   return (

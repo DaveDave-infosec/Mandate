@@ -1,6 +1,11 @@
-export const REGISTRY_ADDRESS = "0x26d11ddA633434BF879876bd120f2052765b73fB";
+/** The V2 registry. Only the V2 market reads it, so no capability, mandate or budget is shared with any other market. */
+export const REGISTRY_ADDRESS = "0xA196082fB4679e98D984920619c83d79d33A912D";
+/** The V1 registry, read only by the V1 market. Its finished proof run ships as a snapshot. */
+export const REGISTRY_V1_ADDRESS = "0x26d11ddA633434BF879876bd120f2052765b73fB";
 /** The V2 market: payment waits for validators to read the delivery. Every write goes here. */
-export const MARKET_ADDRESS = "0x063DE96D0eB06289AF153EDa0Be4BE1F42289820";
+export const MARKET_ADDRESS = "0xc896e0A3ed824991fD6535883867B2D588a6e5D4";
+/** The first V2 market, on the V1 registry. Superseded after review: it re-fetched delivery URLs and shared a registry with V1. */
+export const MARKET_V2_FIRST_ADDRESS = "0x063DE96D0eB06289AF153EDa0Be4BE1F42289820";
 /** The V1 market: paid on purchase. Kept for its record, and checked by V2 so no capability is bought twice. */
 export const MARKET_V1_ADDRESS = "0x21e6160A6B5166A60B58B5E06C4375d254C81DF8";
 export const CHAIN_ID = 61999;
@@ -47,8 +52,8 @@ export const KNOWN_ACTORS: Record<string, string> = {
 };
 
 export const LIVE_RUN_ROOT = "m_0";
-/** Root of the V2 live proof run: deliveries, bands, a challenge and an expiry. */
-export const V2_RUN_ROOT = "m_9";
+/** Root of the V2 live proof run, on the V2 registry. */
+export const V2_RUN_ROOT = "m_0";
 
 /** The market's issuer: the only address that can mint GEN. */
 export const ISSUER = "0x7bbcac9c77aabc2aca19cd34f944fbc015f06a54";

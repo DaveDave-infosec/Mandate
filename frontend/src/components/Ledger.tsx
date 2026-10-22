@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import type { Capability, Mandate } from "../lib/mandate";
-import type { Store } from "../lib/store";
+import { V1_RECORD, type Store } from "../lib/store";
 import type { MandateRow, Row, SlipRow } from "../lib/ledger";
 import { RECEIPTS, txUrl } from "../lib/contracts";
 import StateBadge from "./StateBadge";
@@ -42,7 +42,9 @@ function list(csv: string): string[] {
     .filter(Boolean);
 }
 
-function Receipt({ id }: { id: string }) {
+/** Receipts belong to the V1 proof run, so they show only on the V1 record. */
+function Receipt({ id, store }: { id: string; store: Store }) {
+  if (store !== V1_RECORD) return null;
   const r = RECEIPT_LINKS[id];
   if (!r) return null;
   return (
@@ -176,7 +178,7 @@ function MandateDetail({ m, store }: { m: Mandate; store: Store }) {
           dissent={m.escalation_minority_note}
         />
       )}
-      <Receipt id={m.id} />
+      <Receipt id={m.id} store={store} />
     </div>
   );
 }
@@ -282,7 +284,7 @@ function SlipDetail({ cap, store }: { cap: Capability; store: Store }) {
         />
       )}
       {p && <DeliveryDetail p={p} store={store} />}
-      <Receipt id={cap.id} />
+      <Receipt id={cap.id} store={store} />
     </div>
   );
 }

@@ -1323,3 +1323,27 @@ button:disabled {
 .slip__paid--unpaid .who {
   color: var(--refused);
 }
+.delivery__hash {
+  font-size: 11.5px;
+  word-break: break-all;
+}
+.delivery__bytes {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.bound__load {
+  margin: 12px 0 0;
+}
+.bound__text {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px 12px;
+  background: var(--ground);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

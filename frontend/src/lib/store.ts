@@ -1,4 +1,4 @@
-import { normalize, readMarket, readMarketV1, readRegistry } from "./rpc";
+import { normalize, readMarket, readRegistry } from "./rpc";
 import { PURCHASE_KEYS, purchaseIsOpen, type Capability, type Item, type Mandate, type Purchase } from "./mandate";
 import snapshotData from "../data/snapshot.json";
 
@@ -48,9 +48,7 @@ function v1Purchase(id: string, raw: RawRecord | null): Purchase {
   return rec;
 }
 
-const PERSIST_KEY = "mandate.store.v2";
-const SNAPSHOT_RESET_ERROR =
-  "The live contracts report fewer records than the shipped snapshot. The network may have been reset.";
+const PERSIST_KEY = "mandate.store.v3";
 
 type RawRecord = Record<string, unknown>;
 
@@ -173,9 +171,16 @@ function mergePersisted(store: Store): Store {
   return out;
 }
 
+/** The live store reads the V2 registry and V2 market only. It starts from what this browser last saw. */
 export function initialStore(): Store {
-  return mergePersisted(storeFromSnapshot());
+  return mergePersisted(emptyStore());
 }
+
+/**
+ * The finished V1 proof run on the V1 registry, shipped as a snapshot. Every record in it is final.
+ * It is kept apart from the live store because the two registries number their records independently.
+ */
+export const V1_RECORD: Store = storeFromSnapshot();
 
 function persist(store: Store): void {
   try {
@@ -233,13 +238,6 @@ export async function refreshLive(current: Store): Promise<Store> {
   const mandateCount = await liveCount("registry", "get_mandate_count");
   const itemCount = await liveCount("registry", "get_item_count");
   const capabilityCount = await liveCount("registry", "get_capability_count");
-  if (
-    mandateCount < snapshot.counts.mandates ||
-    itemCount < snapshot.counts.items ||
-    capabilityCount < snapshot.counts.capabilities
-  ) {
-    throw new Error(SNAPSHOT_RESET_ERROR);
-  }
 
   const liveMandateIds: string[] = [];
   for (let i = 0; i < mandateCount; i++) {
@@ -301,9 +299,6 @@ export async function refreshLive(current: Store): Promise<Store> {
 
   const nonFinalMandates = liveMandateIds.filter((id) => !final.has(id) && mandates[id]);
   const nonFinalRoots = nonFinalMandates.filter((id) => mandates[id].parent_id === "");
-  const nonFinalIssuedCaps = liveCapabilityIds.filter(
-    (id) => !final.has(id) && capabilities[id] && capabilities[id].status === "ISSUED"
-  );
 
   for (const id of nonFinalMandates) {
     const raw = await readMarket<unknown>("get_spent", [id]);
@@ -328,20 +323,6 @@ export async function refreshLive(current: Store): Promise<Store> {
     rec.market = "v2";
     purchaseRecords[purId] = rec;
     purchases[rec.capability] = purId;
-  }
-
-  // V1 purchases: a capability bought in the V1 market stays bought. V1 records never change.
-  for (const id of nonFinalIssuedCaps) {
-    if (purchases[id]) continue;
-    const raw = await readMarketV1<unknown>("get_purchase_for_capability", [id]);
-    const v1Id = typeof raw === "string" ? raw : "";
-    if (v1Id === "") continue;
-    const key = "v1:" + v1Id;
-    purchases[id] = key;
-    if (!purchaseRecords[key]) {
-      const recRaw = asRecord(normalize(await readMarketV1<unknown>("get_purchase", [v1Id])));
-      purchaseRecords[key] = v1Purchase(key, recRaw);
-    }
   }
 
   const computed: Store = {
