@@ -6,7 +6,7 @@ Non-expanding authority for agent delegation chains, on GenLayer.
 
 **Live app:** https://mandate-genlayer.vercel.app (the console is at [/console](https://mandate-genlayer.vercel.app/console), with a [guide](https://mandate-genlayer.vercel.app/guide)).
 
-**V2, 21 October 2026: payment now waits for validators to read the delivery.** A purchase holds the price. Every validator fetches what the vendor delivered and grades it full, most, half or none against the vendor's own listing and every mandate in the chain. Code splits the money exactly. Any wallet in the chain, or the vendor, gets one written challenge, judged by validators. Every deadline and window runs on chain time. See [V2](#v2-delivery-verification).
+**V2: payment waits for validators to read the delivery.** A purchase holds the price. The vendor commits a SHA-256 of what it delivers; validators fetch it once, check it, and store it on-chain, and every review reads that stored copy. They grade it full, most, half or none against the vendor's own listing and every mandate in the chain. Code splits the money exactly. Any wallet in the chain, or the vendor, gets one written challenge. Every deadline and window runs on chain time. V2 runs on its own registry, so no capability or budget is shared with any other market. See [V2](#v2-delivery-verification).
 
 ## The problem
 
@@ -22,7 +22,7 @@ Non-expanding authority for agent delegation chains, on GenLayer.
 3. Every delegation passes code checks first. If the text is identical to the parent, it is approved by hash with no validator call. If the text changed, validators read the whole chain from the root down and decide: narrower, widens, or unclear.
 4. To buy something, an agent names a catalog item id. The item text comes from the vendor's listing on-chain, never from the agent asking. Validators decide whether that item fits every mandate in the chain: authorized, outside_scope, or unclear.
 5. An authorized purchase becomes a single-use capability. The market re-checks the whole chain and the budget at every hop on chain time, charges every hop, and holds the price out of the root's escrow. Nobody is paid yet.
-6. The vendor submits one URL. Every validator fetches it and grades the delivery: full, most, half or none. A delivery that breaks any restriction in any mandate is none, even when it matches the listing. Unclear is held until anyone forces a final review.
+6. The vendor submits one URL and the SHA-256 of the file. Validators fetch it once, agree on the exact bytes, check the hash and store the content on-chain. Every review reads that stored copy and grades it: full, most, half or none. A delivery that breaks any restriction in any mandate is none, even when it matches the listing. Unclear is held until anyone forces a final review.
 7. A decided band is open to one written challenge for a fixed window: from any wallet in the chain arguing for a lower band, or from the vendor arguing for a higher one. Validators re-read the delivery with the challenge as quoted argument and must decide, which settles at once. With no challenge, anyone settles after the window. A missed delivery deadline refunds everything in code.
 8. Any grantor can revoke. Revocation never touches descendants; they die through the chain walk.
 
@@ -37,7 +37,8 @@ Non-expanding authority for agent delegation chains, on GenLayer.
 | Delivery deadline and challenge window on chain time (V2) | |
 | Vendor share plus refund always equals the price, every hop restored (V2) | |
 | Missed delivery deadline refunds in full (V2) | |
-| A capability buys once across both markets (V2) | |
+| Delivered bytes must match the vendor's committed SHA-256 (V2) | |
+| Each market reads only its own registry, so nothing is shared across purchase paths (V2) | |
 | Depth limit of 3 | |
 | No delegation loops | |
 | Identical text approved by hash | |
@@ -58,7 +59,8 @@ Every code row is backed by a test that also proves no validator was consulted. 
 - Mandate and catalog text are passed to validators as quoted data, with the quoting markers stripped from the text so they cannot be forged.
 - An identical delegation or a refused item cannot be resubmitted to farm a different verdict.
 - V2: an unclear delivery holds the money. An unresolved forcing review or challenge review pays the vendor nothing.
-- V2: a challenge is passed to validators as an argument, never as evidence. They check each claim against the content they fetched themselves.
+- V2: a challenge is passed to validators as an argument, never as evidence. They check each claim against the stored delivery.
+- V2: a delivery is bound to the vendor's committed SHA-256. Bytes that do not match revert. Every review reads the stored copy, never the URL again.
 - V2: one delivery and one challenge per purchase. The write surface of the V2 market is pinned at nine methods, and not one of them accepts a time from the caller.
 
 ## Live proof run
@@ -96,27 +98,30 @@ On 18 October 2026 a fresh chain was driven end to end from the web console, usi
 
 ## V2: delivery verification
 
-V1 judged the vendor's listing and paid the moment an agent bought. Nothing checked what the vendor delivered. V2 closes that gap with three mechanisms, all in a new market contract. The registry is unchanged, so every V1 mandate, listing and capability carries over.
+V1 judged the vendor's listing and paid the moment an agent bought. Nothing checked what the vendor delivered. V2 closes that gap with three mechanisms in a new market, on a registry of its own.
 
-1. **Validators read the delivery.** The price is held at purchase. The vendor submits one URL. Each validator fetches it itself and grades the content against the listing and every mandate in the chain. Each verdict stores a short quote of what was read, the reasoning and the strongest dissent.
+1. **Validators read the delivery, bound to stable content.** The price is held at purchase. The vendor submits one URL and the SHA-256 of the file. Validators fetch it once and must agree on the exact bytes (`strict_eq`), which must hash to the commitment, or the delivery reverts with nothing recorded. The content is stored on-chain. The first review, any forcing review and any challenge all read that stored copy, never the URL again, so a changed or unavailable URL changes nothing. Deliveries are capped at 16000 bytes so the stored copy and its hash cover all of it.
 2. **Partial settlement.** Bands are full (100%), most (75%), half (50%) and none (0%). Code pays the vendor its share and returns the rest to the root's escrow and to every hop's budget. Paid plus refunded always equals the price.
-3. **The chain gets a voice, on chain time.** A decided band opens a challenge window. Any wallet in the chain can argue the band down, and the vendor can argue it up, once per purchase. Every deadline, window and expiry in the market uses the transaction's own timestamp, set by consensus. That closes V1's "time is supplied by the caller" limitation on every money path.
+3. **The chain gets a voice, on chain time.** A decided band opens a challenge window. Any wallet in the chain can argue the band down, and the vendor can argue it up, once per purchase. Validators treat the challenge as an argument, never as evidence. Every deadline, window and expiry in the market uses the transaction's own timestamp, set by consensus.
+
+**One registry per market.** The deployed V1 market can never be changed, and it is bound by its constructor to the V1 registry. V2 therefore runs on a fresh registry that only the V2 market reads. No capability, mandate or budget is shared between any two markets, in either direction. Tests drive both markets against two registries at distinct addresses: buying in V2 and then attempting V1, and the reverse, each fail to find or charge anything in the other.
 
 ### V2 live proof run
 
-Run from the deployed console on 21 October 2026. Root m_9 (Principal to Agent A): "Buy research data for the market report, up to 10 GEN. No advertising." m_10 is Agent A's identical delegation to Agent B, approved by hash. The vendor, Northfield Grain Data, listed item_4: a CSV of daily maize prices for four regions, every day of September 2026, 120 rows. The delivered files are in [proof-run/](proof-run) and on a [public gist](https://gist.github.com/DaveDave-infosec/b70bdb290cdca60d0a57ea8213d66c1f). Every row is asserted by tests/test_onchain_v2.py.
+Run from the deployed console on 22 October 2026, on the V2 registry. Root m_0 (Principal to Agent A): "Buy research data for the market report, up to 10 GEN. No advertising." m_1 is Agent A's identical delegation to Agent B, approved by hash. The vendor, Northfield Grain Data, listed item_1: a CSV of daily maize prices for four regions, every day of September 2026, 120 rows, at 2 GEN. The delivered files are in [proof-run/](proof-run), byte for byte, and on a [gist](https://gist.github.com/DaveDave-infosec/b70bdb290cdca60d0a57ea8213d66c1f). Every row is asserted by tests/test_onchain_v2.py, including that each stored delivery hashes to the matching file in proof-run/.
 
-| Purchase | Delivered | Verdict | Money |
-|----------|-----------|---------|-------|
-| pur_0 (c_3) | the full 120-row CSV | **full**. Quoted the header and first row. "Covers all 30 days of September 2026 with four regions per day, totaling 120 data rows as listed. It contains no advertising and no embedded instructions." | settled by a bystander: 2 GEN to the vendor |
-| pur_1 (c_4) | a sponsored post package | **none**. Quoted "NORTHFIELD DATA: SPONSORED POST PACKAGE". "Fails the listing promise of a 120-row research data file and also violates the root and inherited mandate restriction against advertising." Fails: "No advertising." | settled by a bystander: 2 GEN back to escrow and every hop |
-| pur_2 (c_5) | 1 to 20 September only, 80 rows | **half**. "That is a meaningful partial delivery with a major completeness gap." Dissent: "could choose 'most' by treating the missing final ten days as a minor tail gap." | settled by a bystander: 1 GEN to the vendor, 1 GEN back |
-| pur_3 (c_6) | the same 80 rows | **half**, then the vendor challenged for most, citing that dissent. The challenge review re-read the file and kept **half**: "missing an entire third of the promised date range is a substantial shortfall that exceeds a minor deficiency." | the challenge settled it at once: 1 GEN to the vendor, 1 GEN back |
-| pur_4 (c_7) | nothing | no validator asked | expired by a bystander after the 15-minute deadline: 2 GEN back, decided in code |
+| Purchase | Delivered | What happened | Money |
+|----------|-----------|---------------|-------|
+| pur_0 (c_0) | the full 120-row CSV from the gist's **latest** URL. Bound SHA-256 `5135467b...a88f9`, 2,489 bytes | **full**: "contains exactly 120 data rows and follows the specified column format. There are no advertising materials." The vendor then replaced the file at that URL with an advert ([screenshot](proof-run/binding-url-now-serves-an-ad.png)). Agent A challenged: "The file at the delivered URL is now a sponsored post package ... Open the URL and see for yourself." The challenge review read the **stored** CSV, quoted its rows, and kept **full**. Dissent: "the delivered data clearly refutes this." ([screenshot](proof-run/binding-challenge-kept-full.png)) | the challenge settled it at once: 2 GEN to the vendor |
+| pur_1 (c_1) | a sponsored post package. Bound `2832ddd1...dd72d24` | **none**: "an advertising/sponsored post package, not a CSV of daily maize prices. It violates the explicit 'No advertising' restriction in both mandates." | settled by a bystander: 2 GEN back to escrow and every hop |
+| pur_2 (c_2) | 1 to 20 September only, 80 rows. Bound `72d63402...ecc4f` | **half**: "lacks a substantial portion of the listed 120 rows." The vendor challenged for most, citing the dissent. The review re-read the stored file and kept **half**: "40 of the promised 120 rows and one-third of the period are missing; that is a major gap." | the challenge settled it: 1 GEN to the vendor, 1 GEN back |
+| pur_3 (c_3) | the full CSV's URL with the partial file's hash | reverted in code: "delivered content does not match the committed SHA-256 hash". Nothing recorded, no validator asked. Nothing else was delivered | expired by a bystander after the deadline: 2 GEN back, decided in code |
 
-Bait-and-switch is the case V1 could not catch: item_4's listing passed validators as research data, and only reading the delivery exposed the advertising package.
+V2 registry: [`0xA196082fB4679e98D984920619c83d79d33A912D`](https://explorer-studio.genlayer.com/address/0xA196082fB4679e98D984920619c83d79d33A912D). V2 market: [`0xc896e0A3ed824991fD6535883867B2D588a6e5D4`](https://explorer-studio.genlayer.com/address/0xc896e0A3ed824991fD6535883867B2D588a6e5D4). Windows on this testnet deployment: 20 minutes to deliver, 15 minutes to challenge.
 
-V2 market: [`0x063DE96D0eB06289AF153EDa0Be4BE1F42289820`](https://explorer-studio.genlayer.com/address/0x063DE96D0eB06289AF153EDa0Be4BE1F42289820). Windows on this testnet deployment: 15 minutes to deliver, 10 minutes to challenge.
+### What changed after review
+
+The first V2 market (`0x063DE96D0eB06289AF153EDa0Be4BE1F42289820`, run of 21 October) re-fetched the delivery URL at every review and shared the V1 registry with the V1 market. A steward asked for deliveries bound to stable, verifiable content across every review, and for single use and spending enforced across both purchase paths. Both are fixed above, with regression tests, and the run was repeated on the fixed pair. The first V2 market is superseded and unused by the app.
 
 ## Where validators split
 
@@ -131,10 +136,11 @@ GenLayer validators reach one verdict, but the strongest dissenting argument is 
 ## Contracts
 
 - Network: GenLayer Studio, chain 61999
-- Registry: `0x26d11ddA633434BF879876bd120f2052765b73fB` (contracts/mandate_registry.py, no constructor arguments, deploy first)
-- Market V2: `0x063DE96D0eB06289AF153EDa0Be4BE1F42289820` (contracts/mandate_market_v2.py, constructor: registry_address, legacy_market, issuer, max_supply, delivery_window, challenge_window; deployed with the registry, the V1 market, the issuer, 1000, 900 and 600). Every console write goes here.
-- Market V1: `0x21e6160A6B5166A60B58B5E06C4375d254C81DF8` (contracts/mandate_market.py, constructor: registry_address, issuer, max_supply). Kept for the V1 record. V2 asks it before every purchase, so no capability is bought twice.
-- The registry holds mandates, the vendor catalog and capabilities. It never reads or writes another contract. Each market holds its own GEN ledger and only reads through views: the registry, and for V2 also the V1 market. Zero cross-contract writes, zero setters.
+- V2 registry: `0xA196082fB4679e98D984920619c83d79d33A912D` (contracts/mandate_registry.py, no constructor arguments). Read only by the V2 market.
+- V2 market: `0xc896e0A3ed824991fD6535883867B2D588a6e5D4` (contracts/mandate_market_v2.py, constructor: registry_address, legacy_market, issuer, max_supply, delivery_window, challenge_window; deployed with the V2 registry, an empty legacy market, the issuer, 1000, 1200 and 900). Every console write goes here.
+- V1 registry: `0x26d11ddA633434BF879876bd120f2052765b73fB` and V1 market: `0x21e6160A6B5166A60B58B5E06C4375d254C81DF8` (contracts/mandate_market.py, constructor: registry_address, issuer, max_supply). The V1 proof run, kept as its record. The V1 market is bound to the V1 registry.
+- Superseded: the first V2 market, `0x063DE96D0eB06289AF153EDa0Be4BE1F42289820`, on the V1 registry. See [What changed after review](#what-changed-after-review).
+- The registry holds mandates, the vendor catalog and capabilities. It never reads or writes another contract. Each market holds its own GEN ledger and only reads its own registry, through views. Zero cross-contract writes, zero setters.
 - Disclosure: an earlier market deployment, `0xdBC4C20f76d47a0015D660970a7fDa485152f322`, was abandoned before any use because its constructor stored a registry address with copied whitespace. The market now strips and validates every address it accepts (test_constructor_rejects_malformed_addresses).
 - Reading the contracts over RPC: use the checksummed addresses above. A lowercase address returns "Contract not found".
 
@@ -142,15 +148,15 @@ GenLayer validators reach one verdict, but the strongest dissenting argument is 
 
 - `pip install -r requirements-test.txt`
 - `python -m pytest tests/ -q`
-- 101 tests: 33 registry, 18 V1 market and 28 V2 market cases run the real contract code in-process; 11 read the live contracts and assert the V1 run, and 11 more assert the V2 run, chain-time windows, every hop's spend, and that the V2 vault holds exactly escrow plus held money. Zero skips.
+- 109 tests: 33 registry, 18 V1 market and 36 V2 market cases run the real contract code in-process; 11 read the live contracts and assert the V1 run, and 11 more assert the V2 run: registry isolation, chain-time windows, every stored delivery hashing to the published file, the URL-changed challenge, every hop's spend, and the V2 vault holding exactly escrow plus held money. Zero skips.
 - Full property-by-property map: [TESTING.md](TESTING.md)
 
 ## Honest limitations
 
-- Validators grade what the delivery URL returns when they fetch it. A vendor could change the content afterwards, so each verdict stores a quote of what was read.
+- A delivery is capped at 16000 bytes, so the stored copy and its hash always cover all of it. Larger deliverables would need splitting.
 - GEN is a whole-number unit, so a partial band rounds the vendor's share down. Paid plus refunded always equals the price.
 - The registry still takes a time from the caller when it records a delegation or a request. The V2 market re-checks every expiry on chain time before any money moves.
-- The testnet windows are short so a run fits in one sitting: 15 minutes to deliver, 10 to challenge.
+- The testnet windows are short so a run fits in one sitting: 20 minutes to deliver, 15 to challenge.
 - Four fixed action categories: infrastructure, software_license, data_service, marketing. Three hops below the human.
 - Validators can be wrong on genuinely ambiguous wording. That is why unclear verdicts are held, unresolved ones refuse, and an unresolved delivery pays nothing.
 - Only the issuer can mint GEN on this testnet deployment.

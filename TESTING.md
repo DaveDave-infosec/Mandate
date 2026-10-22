@@ -2,7 +2,7 @@
 
 ## What this suite proves
 
-The suite runs 101 tests. 79 run the real contract code in-process: 33 registry, 18 V1 market and 28 V2 market cases. 22 read the deployed contracts on GenLayer Studio: 11 assert the V1 live proof run and 11 assert the V2 live proof run, with ledger invariants that hold across every chain. Zero skips.
+The suite runs 109 tests. 87 run the real contract code in-process: 33 registry, 18 V1 market and 36 V2 market cases. 22 read the deployed contracts on GenLayer Studio: 11 assert the V1 live proof run and 11 assert the V2 live proof run, with ledger invariants that hold across every chain. Zero skips.
 
 ## How to run
 
@@ -24,7 +24,8 @@ python -m pytest tests/test_onchain.py tests/test_onchain_v2.py -q
 - Runner: gltest direct mode, SDK v0.2.16, real contract code executed in-process.
 - One contract per process (a GenLayer SDK constraint), so the registry and each market are tested in separate files.
 - V2 chain time: tests set the transaction timestamp the contract reads, then move it forward to cross deadlines and windows. The contract never receives a time from the caller.
-- V2 deliveries: the delivery URL is answered by a web mock, so tests choose the delivered content and inspect the exact case validators receive.
+- V2 deliveries: the delivery URL is answered by a web mock, so tests choose the delivered content, swap or remove it after delivery, block web access entirely, and inspect the exact case validators receive.
+- Registry isolation: a RoutedWorld answers each cross-contract call by the address actually called, so a market wired to one registry sees nothing in another. Two markets run in sequence against the same world to test both purchase orders.
 - Validator verdicts: every LLM call is answered by a stub at the ExecPromptTemplate boundary, so tests choose the verdict and assert what the contract does with it. The stub raises on any unexpected call, so every "decided in code" test also proves no LLM was consulted.
 - Cross-contract reads: market tests answer the market's registry views with an in-memory FakeRegistry returning exactly what the real registry returns. For V2 it also answers the V1 market's is_consumed.
 - Prompt capture: tests inspect the exact prompt sent to validators (used to prove the full chain and the vendor's catalog text are in it).
@@ -122,6 +123,14 @@ python -m pytest tests/test_onchain.py tests/test_onchain_v2.py -q
 | 26 | test_vault_equals_escrow_plus_held_across_a_mixed_lifecycle | Through purchases, a delivery, a challenge, an expiry and a settle, the vault always equals escrow plus held money. |
 | 27 | test_write_surface_is_pinned_and_takes_no_caller_time | Nine write methods, no owner, no setter, and not one write method accepts a time from the caller. |
 | 28 | test_constructor_validates_addresses_and_windows | The V2 market refuses a malformed legacy market address and stores its windows. |
+| 29 | test_delivery_must_match_the_committed_hash | Bytes that do not hash to the vendor's commitment revert, nothing is recorded, and no validator is asked. The stored content and hash are readable. |
+| 30 | test_oversized_delivery_reverts | A delivery over 16000 bytes reverts, so the stored copy and its hash always cover the whole delivery. |
+| 31 | test_escalation_reads_the_bound_content_after_the_url_changes | The vendor swaps the file after delivery, and the forcing review still reads exactly the bound content. |
+| 32 | test_challenge_reads_the_bound_content_after_the_url_goes_down | The URL returns 404 and web access is blocked entirely, and the challenge review still runs on the stored content. |
+| 33 | test_first_review_escalation_and_challenge_read_identical_content | The first review, the forcing review and the challenge see byte-for-byte the same delivered content. |
+| 34 | test_v2_market_reads_only_its_own_registry | A capability in another registry cannot be bought in V2, and V2 never calls that registry. |
+| 35 | test_purchase_in_v2_then_attempt_in_v1 | V2 buys and charges its mandate. The V1 market, bound to the V1 registry, then cannot find the capability, fund the root or charge anything. |
+| 36 | test_purchase_in_v1_then_attempt_in_v2 | The reverse order: V1 buys from its registry, and V2 cannot find or charge that capability in its own. |
 
 ### tests/test_onchain.py
 
@@ -143,17 +152,17 @@ python -m pytest tests/test_onchain.py tests/test_onchain_v2.py -q
 
 | # | Test | Property proved |
 |---|------|-----------------|
-| 1 | test_v2_market_is_wired_to_the_registry_and_the_v1_market | The V2 market reads the live registry, checks the V1 market for used capabilities, and mints only for the issuer. |
-| 2 | test_proof_run_chain_and_listing | m_9 is the principal's root, m_10 is Agent A's identical delegation approved by hash, and item_4 is a data listing. |
-| 3 | test_every_deadline_and_window_runs_on_chain_time | Each deadline is exactly the delivery window after its chain-time purchase, and each decided band opened exactly the challenge window. |
-| 4 | test_honest_delivery_graded_full_and_settled_by_a_bystander | pur_0: validators fetched the full CSV and graded it full. A wallet that is neither buyer nor vendor settled it. |
-| 5 | test_bait_and_switch_graded_none_citing_the_root | pur_1: a sponsored post package delivered against a data listing was graded none, citing No advertising, and fully refunded. |
-| 6 | test_partial_delivery_split_exactly | pur_2: 20 of 30 days graded half. The vendor got half the price and the rest went back. |
-| 7 | test_vendor_challenge_reviewed_and_settled_at_once | pur_3: the vendor challenged half for most. Validators re-read the delivery, kept half, and the challenge settled the money. |
-| 8 | test_missed_deadline_refunded_in_code | pur_4: never delivered. After the deadline it was expired with a full refund and no validator verdict on record. |
-| 9 | test_every_hop_budget_carries_exactly_what_was_paid | For every mandate, spend equals the full price of open purchases plus the paid share of closed ones. |
-| 10 | test_v2_vault_holds_exactly_escrow_plus_held_money | Across every root, the V2 vault equals the sum of all escrows plus the money held for unsettled purchases. |
-| 11 | test_capability_bought_in_v1_is_not_bought_in_v2 | c_1 was bought in the V1 proof run, and the V2 market has no purchase for it. |
+| 1 | test_every_market_reads_only_its_own_registry | The V2 market reads only the V2 registry and checks no other market; the V1 market is bound to the V1 registry. |
+| 2 | test_proof_run_chain_and_listing | m_0 is the root on the V2 registry, m_1 an identical delegation approved by hash, item_1 the 2 GEN data listing. |
+| 3 | test_every_deadline_and_window_runs_on_chain_time | Each deadline is exactly the delivery window after its chain-time purchase, and each band opened exactly the challenge window. |
+| 4 | test_bound_content_is_exactly_the_published_files | Every stored delivery hashes to its committed SHA-256, which equals the matching file in proof-run/. |
+| 5 | test_url_changed_after_delivery_and_the_challenge_still_read_the_bound_content | pur_0: the delivered URL now serves an advert, the challenge made that claim, and the review read the stored dataset and kept full. |
+| 6 | test_bait_and_switch_graded_none_citing_the_root | pur_1: an advert delivered against a data listing was graded none, citing No advertising, and a bystander settled the refund. |
+| 7 | test_partial_delivery_vendor_challenge_kept_half | pur_2: 20 of 30 days graded half, the vendor's challenge was reviewed, and half was kept. |
+| 8 | test_wrong_hash_left_no_trace_then_the_deadline_refunded | pur_3: a delivery with the wrong hash recorded nothing, and the deadline refunded it in code. |
+| 9 | test_every_hop_budget_carries_exactly_what_was_paid | For every mandate, spend equals open prices plus the paid share of closed purchases. |
+| 10 | test_v2_vault_holds_exactly_escrow_plus_held_money | Across every root on the V2 registry, the vault equals all escrows plus held money. |
+| 11 | test_no_v1_market_record_touches_the_v2_proof_run | Every V2 run capability was bought in V2, and the V1 market cannot read the V2 registry. |
 
 ## The honest boundary, and which tests prove it
 
@@ -170,24 +179,29 @@ python -m pytest tests/test_onchain.py tests/test_onchain_v2.py -q
 | revocation enforced by chain walk | test_revoke_mid_chain_kills_descendants_by_chain_walk, test_revoked_ancestor_blocks_capability |
 | budget enforced at execution at every hop | test_race_two_capabilities_over_budget_together, test_sibling_mandates_share_parent_budget |
 | single-use capabilities | test_replay_reverts_and_leaves_balances_untouched, test_capability_used_in_v1_market_cannot_be_bought_again |
+| V2: one registry per market, nothing shared across purchase paths | test_v2_market_reads_only_its_own_registry, test_purchase_in_v2_then_attempt_in_v1, test_purchase_in_v1_then_attempt_in_v2, test_every_market_reads_only_its_own_registry |
+| V2: delivered bytes must match the committed SHA-256 | test_delivery_must_match_the_committed_hash, test_oversized_delivery_reverts, test_wrong_hash_left_no_trace_then_the_deadline_refunded |
 | V2: price held at purchase, never paid on purchase | test_purchase_holds_money_and_charges_every_hop |
 | V2: delivery deadline and challenge window on chain time | test_delivery_after_deadline_reverts, test_challenge_window_is_exact_on_chain_time, test_every_deadline_and_window_runs_on_chain_time |
 | V2: vendor share plus refund equals the price, every hop restored | test_partial_bands_split_exactly_and_restore_every_hop, test_rounding_never_creates_or_destroys_money, test_every_hop_budget_carries_exactly_what_was_paid |
-| V2: missed deadline refunds in full | test_missed_deadline_refunds_in_code, test_missed_deadline_refunded_in_code |
+| V2: missed deadline refunds in full | test_missed_deadline_refunds_in_code, test_wrong_hash_left_no_trace_then_the_deadline_refunded |
 
 | Decided by validators | Proving test(s) |
 |-----------------------|-----------------|
 | does a child mandate preserve every restriction above it | test_consensus_widens_refuses_and_stores_clause, test_grandparent_drift_caught, test_headline_widening_refused_against_root, test_middle_hop_drift_refused |
 | does the vendor's actual catalog item fit every mandate in the chain | test_authorized_issues_bound_capability_from_catalog_text, test_catalog_text_judged_outside_scope_and_authorized |
-| V2: how much did the delivery deliver, and does it break any mandate | test_validators_read_the_fetched_content_and_the_whole_chain, test_honest_delivery_graded_full_and_settled_by_a_bystander, test_bait_and_switch_graded_none_citing_the_root, test_partial_delivery_split_exactly |
-| V2: does a written challenge change the band | test_a_middle_agent_challenges_a_full_band_down_to_none, test_the_vendor_challenges_a_half_band_up_to_full, test_vendor_challenge_reviewed_and_settled_at_once |
+| V2: every review reads the same bound content, whatever the URL does later | test_escalation_reads_the_bound_content_after_the_url_changes, test_challenge_reads_the_bound_content_after_the_url_goes_down, test_first_review_escalation_and_challenge_read_identical_content, test_url_changed_after_delivery_and_the_challenge_still_read_the_bound_content |
+| V2: how much did the delivery deliver, and does it break any mandate | test_validators_read_the_fetched_content_and_the_whole_chain, test_bait_and_switch_graded_none_citing_the_root, test_partial_delivery_vendor_challenge_kept_half |
+| V2: does a written challenge change the band | test_a_middle_agent_challenges_a_full_band_down_to_none, test_the_vendor_challenges_a_half_band_up_to_full, test_partial_delivery_vendor_challenge_kept_half |
 
 ## On-chain evidence
 
 Live contracts on GenLayer Studio (chain 61999):
 
-- Registry: 0x26d11ddA633434BF879876bd120f2052765b73fB
-- Market V2: 0x063DE96D0eB06289AF153EDa0Be4BE1F42289820 (the V2 run is asserted record by record in tests/test_onchain_v2.py)
+- V1 registry: 0x26d11ddA633434BF879876bd120f2052765b73fB
+- V2 registry: 0xA196082fB4679e98D984920619c83d79d33A912D
+- V2 market: 0xc896e0A3ed824991fD6535883867B2D588a6e5D4 (the V2 run is asserted record by record in tests/test_onchain_v2.py)
+- Superseded first V2 market: 0x063DE96D0eB06289AF153EDa0Be4BE1F42289820
 - Market V1: 0x21e6160A6B5166A60B58B5E06C4375d254C81DF8
 
 | Step | Receipt |
@@ -209,5 +223,5 @@ Live contracts on GenLayer Studio (chain 61999):
 ## What these tests do not prove
 
 - In-process tests choose the validator verdict through the stub. Verdict quality is proven by the live run, not by the in-process suite.
-- In-process V2 tests choose the delivered content through a web mock. That validators really fetch and read the vendor's URL is proven by the V2 live run.
+- In-process V2 tests choose the delivered content through a web mock. That validators really fetch the vendor's URL, bind it and read the stored copy is proven by the V2 live run.
 - The registry still takes a time from the caller for its own expiry checks. The V2 market re-checks every expiry on chain time before money moves. Nothing wakes on its own: deadlines are enforced when someone calls settle or expire.

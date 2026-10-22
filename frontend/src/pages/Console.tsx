@@ -150,7 +150,7 @@ export function ConsolePage() {
     setSource("live");
     setRootIdRaw(id);
   };
-  const [openLive, setOpenLive] = useState<Set<string>>(() => new Set());
+  const [openLive, setOpenLive] = useState<Set<string>>(() => new Set(["c_0"]));
   const [openV1, setOpenV1] = useState<Set<string>>(() => new Set(["m_2"]));
   const [, setTick] = useState(0);
   useEffect(() => {
